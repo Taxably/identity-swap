@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Nothing leaves this page: the browser refuses every network request it might make. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Identity Swap</title>
+<!--
+  Identity Swap: realistic stand-ins for the personal information in a folder of client
+  documents. Runs entirely in this browser tab. No AI, no network, no upload.
+
+  Includes pdf-lib 1.17.1 (MIT, Andrew Dillon; bundles pako, MIT), PDF.js 3.11.174
+  (Apache License 2.0, Mozilla Foundation), the Tesseract 5 OCR engine as built by
+  tesseract.js-core 7.0.0 (Apache License 2.0) with its English "best" model (Apache License
+  2.0), fflate 0.8.3 (MIT), UTIF.js 3.1.0 (MIT), gifenc 1.0.3 (MIT) and libheif-js 1.23.5
+  (libheif and libde265, LGPL-3.0, carried unmodified as its own script). Encoding tables and
+  standard font widths from pdfminer.six (MIT); first names and surnames from the Census
+  Bureau's and the Social Security Administration's public-domain tables. Full notices at the
+  end of this file.
+-->
+<style>
+:root {
+  --bg: #F7F6F2; --surface: #FFFFFF; --ink: #14213D; --ink-2: #3D4A63; --muted: #56627A;
+  --line: #DEDBD2; --line-2: #ECE9E2; --teal: #0E7C7B; --teal-ink: #0A5E5D; --teal-wash: #E3F2F1;
+  --bad: #A8261B; --bad-wash: #FBEAE8; --warn: #8A5A00; --warn-wash: #FBF1DC; --ok: #0E6B5A;
+  --serif: "Libre Baskerville", Georgia, "Times New Roman", serif;
+  --sans: "Nunito Sans", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 28px 16px 64px; }
+header.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 2px solid var(--teal); margin-bottom: 22px; }
+h1 { font-family: var(--serif); font-weight: 700; font-size: 28px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-family: var(--serif); font-weight: 700; font-size: 19px; margin: 0 0 4px; }
+.lede { color: var(--ink-2); margin: 6px 0 0; max-width: 680px; }
+.badge { display: inline-flex; align-items: center; gap: 8px; background: var(--teal-wash); color: var(--teal-ink); border-radius: 999px; padding: 6px 12px; font-weight: 700; font-size: 13px; }
+.badge svg { width: 16px; height: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin-bottom: 18px; }
+.card.locked { opacity: .55; pointer-events: none; }
+.step { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+.num { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 14px; }
+.sub { color: var(--muted); margin: 0; }
+.drop { border: 2px dashed var(--line); border-radius: 10px; padding: 26px; text-align: center; background: #FCFBF8; transition: border-color .15s, background .15s; }
+.drop.over { border-color: var(--teal); background: var(--teal-wash); }
+.drop p { margin: 8px 0 0; color: var(--muted); }
+button, .btn { font: inherit; font-weight: 700; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: #fff; padding: 9px 16px; cursor: pointer; }
+button.secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
+button.teal { background: var(--teal); border-color: var(--teal); }
+button.link { background: none; border: none; color: var(--teal-ink); padding: 4px 6px; text-decoration: underline; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #7CC4C2; outline-offset: 2px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 4px; }
+.stat { border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; background: #FCFBF8; }
+.stat b { display: block; font-size: 22px; font-family: var(--serif); }
+.stat span { color: var(--muted); font-size: 13px; }
+.progress { height: 8px; background: var(--line-2); border-radius: 99px; overflow: hidden; margin: 12px 0 6px; }
+.progress > i { display: block; height: 100%; width: 0; background: var(--teal); transition: width .2s; }
+.small { font-size: 13px; color: var(--muted); }
+.note { border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; font-size: 14px; }
+.note.warn { background: var(--warn-wash); color: var(--warn); }
+.note.bad { background: var(--bad-wash); color: var(--bad); }
+.note.ok { background: var(--teal-wash); color: var(--teal-ink); }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+.tabs button { background: var(--surface); color: var(--ink-2); border: 1px solid var(--line); font-weight: 700; padding: 5px 11px; font-size: 13px; }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
+th { background: #F2F0EA; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); position: sticky; top: 0; }
+tr:last-child td { border-bottom: none; }
+tr.off td { color: var(--muted); }
+td.mono, input.mono { font-family: var(--mono); font-size: 13px; }
+td .ctx { display: block; color: var(--muted); font-size: 12px; max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+input[type=text], input[type=search] { font: inherit; border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; background: #fff; color: var(--ink); min-width: 0; }
+input.bad { border-color: var(--bad); background: var(--bad-wash); }
+.count { font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 99px; background: var(--teal-wash); color: var(--teal-ink); white-space: nowrap; }
+.count.bad { background: var(--bad-wash); color: var(--bad); }
+.count.warn { background: var(--warn-wash); color: var(--warn); }
+.kind { font-size: 12px; font-weight: 800; color: var(--ink-2); white-space: nowrap; }
+.pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; }
+details summary { cursor: pointer; font-weight: 700; color: var(--ink-2); }
+.result-swapped { color: var(--ok); font-weight: 800; }
+.result-bad { color: var(--bad); font-weight: 800; }
+.result-plain { color: var(--ink-2); font-weight: 700; }
+fieldset.choice { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; }
+fieldset.choice legend { font-weight: 700; color: var(--ink-2); padding: 0 6px; }
+fieldset.choice label { margin: 4px 0; }
+footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
+@media (max-width: 640px) { .wrap { padding: 18px 16px 48px; } h1 { font-size: 23px; } .card { padding: 16px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Identity Swap</h1>
+      <p class="lede">Give it a client folder. It gives back the same folder, every file and subfolder in place, with names, businesses, SSNs, EINs, street addresses, cities, ZIP codes, phone numbers, emails, account numbers and driver licence and ID numbers replaced by realistic stand-ins: real first names and surnames, a middle initial for a middle initial, and a real city in the same state with a real ZIP code of its own. Dependents and children are found beside the family name, and employers and payers with or without an LLC. PDFs, Excel, Word and PowerPoint files, CSV and text files, zip archives, and scans and photos (JPEG, PNG, TIFF, HEIC, GIF, BMP, WebP) all come back as the kind they came. Nothing else on any page moves.</p>
+    </div>
+    <span class="badge" title="The page refuses every network request. Your files are read by this browser tab and nowhere else.">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+      Works offline. Nothing is uploaded.
+    </span>
+  </header>
+
+  <section class="card" id="step1">
+    <div class="step"><div class="num">1</div><div><h2>Choose the client folder</h2><p class="sub">Every file is read in this tab: PDFs, spreadsheets, Word and PowerPoint files, text files, zip archives, scans and photos. A 3 GB folder is fine.</p></div></div>
+    <div class="drop" id="drop">
+      <button id="pick" type="button">Choose folder</button>
+      <input id="pickInput" type="file" webkitdirectory multiple hidden>
+      <p>or drag the folder here</p>
+    </div>
+    <div id="readOut"></div>
+  </section>
+
+  <section class="card locked" id="step2">
+    <div class="step"><div class="num">2</div><div><h2>Check what will change</h2><p class="sub">Each value gets one stand-in, used in every file, folder name and file name. Edit any stand-in; a name keeps its number of words.</p></div></div>
+    <div id="reviewOut"></div>
+  </section>
+
+  <section class="card locked" id="step3">
+    <div class="step"><div class="num">3</div><div><h2>Make the copy</h2><p class="sub">Your folder is not touched. The copy is written where you choose, under the swapped names.</p></div></div>
+    <div id="runOut"></div>
+  </section>
+
+  <footer>
+    Identity Swap reads documents with fixed rules, no AI. Each character is rewritten in place, in the font the PDF already uses, so the old text is gone from the file rather than covered. A stand-in longer or shorter than its value takes the value's place, and the space after it takes up the difference, so everything else on the line stays where it was. Every copied PDF is checked before it is kept: nothing of the original is left, every other character is where it was, the rendered pages differ only inside the swapped words, and the page text reads as planned.
+    A spreadsheet, a Word file or a slide deck is changed inside its own parts: formulas, numbers, formatting and layout stay as they were, a value Word split in two is found whole, and the copy must open and hold nothing of the original. A text file is written back in its own encoding. A zip archive is opened and every file in it handled the same way. A file locked against copying or printing is left out and listed.
+    Pages that are pictures (scans, photos) are read with Tesseract, inside this page. Each value is painted over in the picture with letters cut from the same page (a font that matches is used only for a letter the page never shows), the picture is written back at its own size, kind, resolution and colours (a palette picture keeps its palette, a fax stays black and white), and it is read again: the stand-in must read where it was painted, no original value may read anywhere, and nothing outside the painted words may change. Handwriting, signatures and stamps cannot be read; they are listed, and you choose whether to copy, erase or hold them back. On a driver licence or ID card, scanned, photographed or faxed, the photo and its faint copy are replaced with a plain silhouette (on a fax, the blots left of the faint copy go too), and the name, licence number, birth date, issue and expiry dates, address and DD number are swapped. A value that cannot be redrawn in its stand-in is blanked out rather than the file held back. The copy holds the same folders as the original, empty ones too, and every file in its place; the report is saved beside it. An SSN a spreadsheet kept as a number, with its leading zeros dropped, is found as the SSN it is. A HEIC photo comes back as a JPEG, because no free tool writes HEIC in a browser, and the report says so.
+  </footer>
+</div>
+
+/*@@LIBS@@*/
+<script type="text/plain" id="pdfjs-worker">/*@@WORKER@@*/</script>
+<script type="text/plain" id="ocr-core">/*@@OCRCORE@@*/</script>
+<script type="text/plain" id="ocr-wasm">/*@@OCRWASM@@*/</script>
+<script type="text/plain" id="ocr-model">/*@@OCRMODEL@@*/</script>
+<script>
+/*@@APP@@*/
+</script>
+<!--
+/*@@NOTICES@@*/
+-->
+</body>
+</html>

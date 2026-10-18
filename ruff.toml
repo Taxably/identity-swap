@@ -1,0 +1,6 @@
+# The same lint gate the rest of Taxably's Python runs: errors that break code, not style.
+line-length = 100
+target-version = "py310"
+
+[lint]
+select = ["E9", "F63", "F7", "F82", "F811", "F841", "PLE"]
