@@ -308,9 +308,22 @@ const PDFSwapOCR = (() => {
     return out;
   }
 
-  /** The worker the reader runs in: the Tesseract module's own script, these functions, and this. */
+  /** One read: Tesseract's, and the second reader's (docling's OCR engine, `dl`, when it is
+   * there) added to it. A read-back of a few boxes is Tesseract's alone: it is asked whether a
+   * painted word reads as painted, which is a question about the letters Tesseract will cut. */
+  async function readJob(M, api, dl, D, job) {
+    // a PDF's page drawn whole, read by the second reader alone (Tesseract has read its pictures)
+    if (job.only === "docling") return { w: job.w, h: job.h, ink: 0, marks: [], mean: 0, rectTexts: null, docling: dl ? { lines: 0, added: 0 } : null, lines: dl ? (await D.read(dl, job.gray, job.w, job.h)).map((l) => ({ words: l.words, pass: 4, dl: true })) : [] };
+    const res = readPage(M, api, job);
+    if (dl && !job.rects && !res.notText) D.merge(res, await D.read(dl, job.gray, job.w, job.h));
+    return res;
+  }
+  /** The worker the reader runs in: the Tesseract module's own script, the second reader's
+   * functions, these functions, and this. The second reader's ONNX Runtime is a module, handed in
+   * as a blob of its own and imported; when it cannot start, Tesseract reads alone. */
   function workerMain(scope) {
-    let M = null, api = null;
+    let M = null, api = null, dl = null;
+    const D = { read: dlRead, merge: dlMerge };
     scope.onmessage = async (ev) => {
       const { id, type } = ev.data;
       try {
@@ -320,14 +333,22 @@ const PDFSwapOCR = (() => {
           M.FS.writeFile("/td/eng.traineddata", ev.data.model);
           api = new M.TessBaseAPI();
           if (api.Init("/td", "eng", 1) !== 0) throw Error("the reader's English model would not load");
-          scope.postMessage({ id, ok: true });
+          let why = "";
+          if (ev.data.docling) {
+            // a page opened from disk has no origin of its own, so a blob the page made is not the
+            // worker's to import: the worker makes its own from the text
+            const own = (js) => URL.createObjectURL(new Blob([js], { type: "text/javascript" }));
+            try { dl = await dlOpen(await import(own(ev.data.docling.ort)), { ...ev.data.docling, glue: own(ev.data.docling.glue) }); }
+            catch (e) { dl = null; why = String((e && e.message) || e); }
+          }
+          scope.postMessage({ id, ok: true, res: { docling: !!dl, why } });
         } else if (type === "read") {
-          scope.postMessage({ id, ok: true, res: readPage(M, api, ev.data) });
+          scope.postMessage({ id, ok: true, res: await readJob(M, api, dl, D, ev.data) });
         }
       } catch (e) { scope.postMessage({ id, ok: false, error: String((e && e.message) || e) }); }
     };
   }
-  const SHARED = [toGray, resize, paper, flatten, lineMask, prepare, readPage];
+  const SHARED = [toGray, resize, paper, flatten, lineMask, prepare, readPage, readJob];
 
   // ---------------------------------------------------------------- the reader
   /** A pool of readers. `spawn()` makes one: a worker in the page, the module itself in node.
@@ -343,7 +364,7 @@ const PDFSwapOCR = (() => {
     return {
       size,
       async read(gray, w, h, dpi, opts = {}) {
-        const s0 = Math.max(0.5, Math.min(2, 300 / (dpi || 300)));
+        const s0 = opts.only ? 1 : Math.max(0.5, Math.min(2, 300 / (dpi || 300)));
         const s = s0 * Math.min(1, Math.sqrt(30e6 / (w * h * s0 * s0)));
         const same = Math.abs(s - 1) < 0.02;
         const sw = same ? w : Math.max(1, Math.round(w * s)), sh = same ? h : Math.max(1, Math.round(h * s));
@@ -355,13 +376,21 @@ const PDFSwapOCR = (() => {
         let timer, res;
         try {
           res = await Promise.race([
-            reader.read({ gray: g, w: sw, h: sh, dpi: dpi * (same ? 1 : s), coverage: opts.coverage !== false, rects }),
+            reader.read({ gray: g, w: sw, h: sh, dpi: dpi * (same ? 1 : s), coverage: opts.coverage !== false, rects, only: opts.only || null }),
             new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("reading this page took more than " + Math.round(timeout / 60000) + " minutes")), timeout); }),
           ]);
         } catch (e) { clearTimeout(timer); try { reader.close(); } catch (e2) { /* already gone */ } drop(); throw e; }
         clearTimeout(timer);
         give(slot);
         return scaleBack(res, same ? 1 : s);
+      },
+      /** Whether the second reader (docling's OCR engine) started beside Tesseract, and why not. */
+      async second() {
+        const slot = await take();
+        let r;
+        try { r = await slot; } catch (e) { drop(); throw e; }
+        give(slot);
+        return { docling: !!r.docling, why: r.why || "" };
       },
       async close() { for (const r of idle.splice(0)) { try { (await r).close(); } catch (e) { /* already gone */ } } },
     };
@@ -469,7 +498,28 @@ const PDFSwapOCR = (() => {
         }
       }
     }
-    return out;
+    // a value both readers read is painted once, where Tesseract read it (its letter boxes are
+    // the ink's own); one only the second reader read is painted where that reader read it
+    const span = (o) => {
+      const L = res.lines[o.line.li];
+      let b = null;
+      for (let k = o.s; k < o.e; k++) {
+        const q = o.line.map[k];
+        if (q < 0) continue;
+        const { wi, si } = o.line.syms[q], sb = L.words[wi].syms[si].box;
+        b = b ? [Math.min(b[0], sb[0]), Math.min(b[1], sb[1]), Math.max(b[2], sb[2]), Math.max(b[3], sb[3])] : sb.slice();
+      }
+      return b;
+    };
+    const meets = (a, b) => a && b && Math.min(a[2], b[2]) > Math.max(a[0], b[0]) && Math.min(a[3], b[3]) > Math.max(a[1], b[1]);
+    const kept = out.filter((o) => !res.lines[o.line.li].dl), spans = kept.map(span);
+    for (const o of out) {
+      if (!res.lines[o.line.li].dl) continue;
+      const b = span(o);
+      if (spans.some((x) => meets(x, b))) continue;
+      kept.push(o); spans.push(b);
+    }
+    return kept;
   }
 
   // ---------------------------------------------------------------- painting
@@ -635,7 +685,9 @@ const PDFSwapOCR = (() => {
     const out = new Map();
     const metrics = lineMetrics(res, prep.clean, w);
     res.lines.forEach((l, li) => l.words.forEach((wd, wi) => wd.syms.forEach((sy, si) => {
-      if (!sy.exact || sy.cut || sy.conf < 80 || [...sy.c].length !== 1 || !/[\p{L}\p{N}&@#$%()\-.,/'’]/u.test(sy.c)) return;
+      // a letter the second reader placed is placed from where it was read, not cut from its ink:
+      // it is not lent
+      if (sy.dl || !sy.exact || sy.cut || sy.conf < 80 || [...sy.c].length !== 1 || !/[\p{L}\p{N}&@#$%()\-.,/'’]/u.test(sy.c)) return;
       const [x0, y0, x1, y1] = sy.box;
       if (x1 - x0 < 2 || y1 - y0 < 3) return;
       const prev = wd.syms[si - 1], next = wd.syms[si + 1];
@@ -1324,9 +1376,12 @@ const PDFSwapOCR = (() => {
 
   // ---------------------------------------------------------------- in the browser
   /** The reader as workers in this page, from the Tesseract module's own script and its two files. */
-  function browserReader({ glue, wasm, model, size }) {
-    const src = glue + "\n" + SHARED.map((f) => f.toString()).join("\n") + "\n(" + workerMain.toString() + ")(self);";
+  function browserReader({ glue, wasm, model, size, docling = null }) {
+    const D = globalThis.PDFSwapDocling;
+    const src = glue + "\n" + SHARED.map((f) => f.toString()).join("\n") + "\n" + (D ? "const DL = " + JSON.stringify(D.DL) + ";\n" + D.SHARED.map((f) => f.toString()).join("\n") : "function dlRead() {} function dlMerge() {} function dlOpen() { throw Error('no second reader'); }") + "\n(" + workerMain.toString() + ")(self);";
     const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+    // the second reader's ONNX Runtime and its loader, modules each worker imports
+    const dlInit = docling && D ? docling : null;
     const spawn = () => new Promise((resolve, reject) => {
       const w = new Worker(url);
       let seq = 0;
@@ -1334,12 +1389,46 @@ const PDFSwapOCR = (() => {
       w.onmessage = (ev) => { const p = waiting.get(ev.data.id); if (!p) return; waiting.delete(ev.data.id); if (ev.data.ok) p.res(ev.data.res); else p.rej(new Error(ev.data.error)); };
       w.onerror = (e) => { e.preventDefault?.(); for (const p of waiting.values()) p.rej(new Error("the reader stopped")); waiting.clear(); };
       const call = (msg, transfer) => new Promise((res, rej) => { const id = ++seq; waiting.set(id, { res, rej }); w.postMessage({ ...msg, id }, transfer || []); });
-      call({ type: "init", wasm: wasm.slice(0), model: model.slice(0) }).then(() => resolve({
+      const second = dlInit ? { ort: dlInit.ort, glue: dlInit.glue, wasm: dlInit.wasm.slice(0), det: dlInit.det.slice(0), rec: dlInit.rec.slice(0), keys: dlInit.keys } : null;
+      call({ type: "init", wasm: wasm.slice(0), model: model.slice(0), docling: second }).then((st) => resolve({
+        docling: !!(st && st.docling), why: (st && st.why) || "",
         read: (job) => { const gray = job.gray.slice(); return call({ ...job, type: "read", gray }, [gray.buffer]); },
         close: () => w.terminate(),
       }), (e) => { w.terminate(); reject(e); });
     });
     return pool(spawn, size);
+  }
+  /** A PDF's pages drawn by pdf.js (form fields too) at about `dpi`, each handed to `each` with
+   * where pdf.js places the file's own text on it and where the picture's corners fall in the
+   * page's own space. `want(page)` picks the pages; none is drawn more than `most` pixels long. */
+  async function renderPdf(open, bytes, dpi, want, each, most = 2400) {
+    const pdf = await open(bytes);
+    try {
+      for (let p = 0; p < pdf.numPages; p++) {
+        if (!want(p)) continue;
+        const page = await pdf.getPage(p + 1);
+        let vp = page.getViewport({ scale: dpi / 72 });
+        const fit = Math.min(1, most / Math.max(vp.width, vp.height));
+        if (fit < 1) vp = page.getViewport({ scale: (dpi / 72) * fit });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport: vp, annotationMode: globalThis.pdfjsLib.AnnotationMode.ENABLE }).promise;
+        const boxes = [];
+        for (const it of (await page.getTextContent()).items) {
+          if (typeof it.str !== "string" || !it.str.trim()) continue;
+          const t = it.transform, size = Math.hypot(t[2], t[3]) || 10, run = Math.hypot(t[0], t[1]) || 1;
+          const ux = t[0] / run, uy = t[1] / run, vx = t[2] / size, vy = t[3] / size;
+          const pts = [[0, -0.35 * size], [it.width, -0.35 * size], [0, 1.1 * size], [it.width, 1.1 * size]].map(([a, b]) => vp.convertToViewportPoint(t[4] + a * ux + b * vx, t[5] + a * uy + b * vy));
+          boxes.push([Math.floor(Math.min(...pts.map((q) => q[0]))), Math.floor(Math.min(...pts.map((q) => q[1]))), Math.ceil(Math.max(...pts.map((q) => q[0]))), Math.ceil(Math.max(...pts.map((q) => q[1])))]);
+        }
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        page.cleanup();
+        const corners = [[0, canvas.height], [canvas.width, canvas.height], [0, 0]].map(([x, y]) => vp.convertToPdfPoint(x, y));
+        await each({ page: p, w: canvas.width, h: canvas.height, data, boxes, corners, dpi: (dpi * fit) });
+      }
+    } finally { pdf.destroy(); }
   }
   async function decodeFile(bytes, type) {
     const bmp = await createImageBitmap(new Blob([bytes], { type }), { imageOrientation: "from-image" });
@@ -1666,19 +1755,21 @@ const PDFSwapOCR = (() => {
       const page = model.pages[d.page], { width, height } = page.getSize();
       const area = Math.abs(d.ctm[0] * d.ctm[3] - d.ctm[1] * d.ctm[2]) / (width * height || 1);
       let info; try { info = E_.imageInfo(model, d.ref); } catch (e) { continue; }
-      if (area < 0.05 || Math.min(info.w, info.h) < 150) continue;
+      // a picture of a page, or set into one: a cheque, a card, a stamp with a name on it
+      if (area < 0.02 || Math.min(info.w, info.h) < 120) continue;
       if (!byRef.has(d.ref.tag)) byRef.set(d.ref.tag, { ref: d.ref, info, draws: [], area: 0 });
       byRef.get(d.ref.tag).draws.push(d);
       byRef.get(d.ref.tag).area = Math.max(byRef.get(d.ref.tag).area, area);
     }
     if (!byRef.size) return { pictures: [], symbols: 0 };
-    const pdf = await svc.pdfjs(bytes);
+    // a picture's pixels come from pdf.js, or from `pixels` where it is handed in (the tests')
+    const pdf = svc.pixels ? null : await svc.pdfjs(bytes);
     const pictures = [];
     let symbols = 0;
     try {
       for (const pic of byRef.values()) {
         const first = pic.draws[0];
-        const px = await pictureOf(pdf, model, first, pic.info);
+        const px = svc.pixels ? await svc.pixels(model, first.ref) : await pictureOf(pdf, model, first, pic.info);
         if (!px) { pictures.push({ key: pic.ref.tag, failed: "a picture on page " + (first.page + 1) + " could not be read" }); continue; }
         const placed = placement(first.ctm, model.pages[first.page].getRotation().angle, pic.info.w);
         const { res, m } = await readUpright(svc, px, placed.m, placed.dpi);
@@ -1688,7 +1779,7 @@ const PDFSwapOCR = (() => {
         symbols += res.lines.reduce((n, l) => n + l.words.reduce((k, wd) => k + wd.syms.length, 0), 0);
         pictures.push({ key: pic.ref.tag, res, dpi, m, page: first.page, pages: [...new Set(pic.draws.map((d) => d.page))], inset: pic.area < 0.4 });
       }
-    } finally { pdf.destroy(); }
+    } finally { if (pdf) pdf.destroy(); }
     return { pictures, symbols };
   }
   /** One picture's pixels, as stored, from pdf.js: the draw is found among the page's pictures by
@@ -1828,7 +1919,7 @@ const PDFSwapOCR = (() => {
   async function paintPdfPictures(svc, { model, prepared, rows }, bytes, pictures) {
     const E_ = E(), out = { occurrences: [], rowsByPage: new Map(), changed: false, checks: [], warnings: [], extraAllowed: [] };
     if (!pictures || !pictures.length) return out;
-    const pdf = await svc.pdfjs(bytes);
+    const pdf = svc.pixels ? null : await svc.pdfjs(bytes);
     try {
       for (const pic of pictures) {
         if (pic.failed) { out.warnings.push(pic.failed); continue; }
@@ -1840,7 +1931,7 @@ const PDFSwapOCR = (() => {
         const label = pic.inset ? "a picture on page " + (pic.page + 1) : "page " + (pic.page + 1) + " (scanned)";
         const note = pictureNote(pic.res, label, !!pic.inset);
         if (note && svc.marks !== "erase") out.warnings.push(note);
-        const px = await pictureOf(pdf, model, draws[0], info);
+        const px = svc.pixels ? await svc.pixels(model, ref) : await pictureOf(pdf, model, draws[0], info);
         if (!px) { out.warnings.push("the picture on " + label + " could not be read again"); continue; }
         const up = orient(px, pic.m);
         const bilevel = info.bpc === 1 || info.filters.some((f) => f === "CCITTFaxDecode" || f === "JBIG2Decode");
@@ -1901,8 +1992,121 @@ const PDFSwapOCR = (() => {
           out.extraAllowed.push(...done.erased.flatMap(pdfBoxes));
         }
       }
-    } finally { pdf.destroy(); }
+    } finally { if (pdf) pdf.destroy(); }
     return out;
+  }
+
+  // ---------------------------------------------------------------- a PDF's pages, drawn and read
+  // Docling reads a PDF as its pages look as well as by the text the file holds: each page is
+  // drawn, and wherever the drawing shows ink the file's own text does not account for (text
+  // drawn as outlines, a font that gives no letters back, a picture too small to be read as one,
+  // a stamp), the page is read by docling's OCR engine. What it reads that the file's text and its
+  // pictures do not hold is searched like any other text, and a copy is drawn and read again
+  // before it is kept: no original value may read on it.
+  const DRAWN_DPI = 200;
+  const plainWords = (t) => (t.match(/[\p{L}\p{N}]+/gu) || []).map((w) => w.toLowerCase());
+  /** At most one letter apart (a reader's slip on a word the file holds as text). */
+  function nearWord(a, b) {
+    if (a === b) return true;
+    if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 5) return false;
+    let i = 0, j = 0, e = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++e > 1) return false;
+      if (a.length > b.length) i++; else if (a.length < b.length) j++; else { i++; j++; }
+    }
+    return e + (a.length - i) + (b.length - j) <= 1;
+  }
+  /** The words a file's own text holds, page by page ("all": form values and the like). */
+  function knownWords(prof) {
+    const out = new Map([["all", new Set()]]);
+    const add = (page, text) => { const k = page === null || page === undefined ? "all" : page; if (!out.has(k)) out.set(k, new Set()); for (const w of plainWords(text)) out.get(k).add(w); };
+    for (const p of prof.parts || []) add(p.page, p.text);
+    for (const b of prof.blocks || []) add(b.page, b.lines.join("\n"));
+    return out;
+  }
+  /** How much ink a drawn page shows outside the file's own text (a form's ruling lines aside),
+   * in pixels. */
+  function unexplainedInk(px, boxes, dpi) {
+    const { w, h } = px, gray = toGray(px.data, w * h), mask = lineMask(gray, w, h, Math.max(24, Math.round(dpi * 0.4)));
+    const text = new Uint8Array(w * h);
+    for (const [x0, y0, x1, y1] of boxes) for (let y = Math.max(0, y0 - 2); y < Math.min(h, y1 + 2); y++) text.fill(1, y * w + Math.max(0, x0 - 2), y * w + Math.min(w, x1 + 2));
+    let n = 0;
+    for (let i = 0; i < w * h; i++) if (gray[i] < 128 && !mask[i] && !text[i]) n++;
+    return n;
+  }
+  const UNEXPLAINED = 150, DRAWN_CHECK = "nothing left on the drawn pages";
+  async function secondReader(svc) {
+    if (svc._second === undefined) { try { svc._second = svc.reader.second ? !!(await svc.reader.second()).docling : false; } catch (e) { svc._second = false; } }
+    return svc._second;
+  }
+  /** First pass, a PDF: its pages drawn, and what they show that the file does not hold as text,
+   * read. Returns [{ page, lines }]: the lines of each page that hold a word the file's text does
+   * not. A page that is a scan read as a picture already is not drawn again. */
+  async function readDrawnPages(svc, bytes, model, prof, pictures) {
+    if (!svc.render || !(await secondReader(svc))) return [];
+    const known = knownWords(prof), all = known.get("all");
+    const scanned = new Map();
+    const read = new Set((pictures || []).filter((p) => p.res).map((p) => p.key));
+    for (const d of model.images) {
+      if (!read.has(d.ref.tag)) continue;
+      const { width, height } = model.pages[d.page].getSize();
+      const area = Math.abs(d.ctm[0] * d.ctm[3] - d.ctm[1] * d.ctm[2]) / (width * height || 1);
+      scanned.set(d.page, Math.max(scanned.get(d.page) || 0, area));
+    }
+    const out = [];
+    await svc.render(bytes, DRAWN_DPI, (p) => (scanned.get(p) || 0) < 0.85, async (pg) => {
+      if (unexplainedInk(pg, pg.boxes, pg.dpi) < UNEXPLAINED) return;
+      const res = await svc.reader.read(toGray(pg.data, pg.w * pg.h), pg.w, pg.h, pg.dpi, { only: "docling" });
+      const mine = known.get(pg.page) || new Set();
+      const holds = (w) => mine.has(w) || all.has(w) || (w.length >= 5 && [...mine].some((k) => nearWord(k, w)));
+      const lines = pageText(res).map((l) => l.text).filter((t) => plainWords(t).some((w) => (w.length >= 2 || /\d/.test(w)) && !holds(w)));
+      if (lines.length) out.push({ page: pg.page, lines });
+    });
+    return out;
+  }
+  /** Second pass, a PDF: the copy (or the file itself, where it is copied as it is) drawn again on
+   * every page that showed text of its own, and read: no original value may read there. */
+  async function checkDrawnPages(svc, bytes, drawn, rows) {
+    const pages = new Set(drawn.map((d) => d.page)), left = [];
+    const residual = rows.filter((r) => !rows.some((o) => o.replace.includes(r.find)));
+    const prepared = E().prepareRows(residual.map((r) => ({ ...r })));
+    const standIns = new Set(rows.map((r) => r.replace));
+    await svc.render(bytes, DRAWN_DPI, (p) => pages.has(p), async (pg) => {
+      const res = await svc.reader.read(toGray(pg.data, pg.w * pg.h), pg.w, pg.h, pg.dpi, { only: "docling" });
+      for (const o of findOnPage(res, prepared, residual)) if (!o.fuzzy || !standIns.has(o.line.text.slice(o.s, o.e))) left.push({ page: pg.page, row: o.row });
+    });
+    const where = [...new Set(left.map((o) => o.page + 1))].sort((a, b) => a - b);
+    return { name: DRAWN_CHECK, passed: !left.length, rows: [...new Set(left.map((o) => o.row.id))], pages: where.map((p) => p - 1),
+      detail: left.length ? left.length + (left.length === 1 ? " original value still reads" : " original values still read") + " where page" + (where.length > 1 ? "s " : " ") + where.join(", ") + " draw" + (where.length > 1 ? "" : "s") + " text the file does not hold as letters (" + [...new Set(left.map((o) => (o.row.label || "a value") + " (map row " + o.row.id + ")"))].join("; ") + ")" : "" };
+  }
+
+  /** A PDF with the pages given drawn again as pictures: each page's content becomes one
+   * picture of the page as pdf.js draws it (its annotations and form fields in it), at 300 dpi, in
+   * grey where the page is grey. The page keeps its size, its box and its turn; its annotations go
+   * (they are in the picture now). The copy is then painted like any scan, with every check a scan
+   * gets: text the file holds as shapes, or in a font that gives no letters back, is swapped too. */
+  const FLAT_DPI = 300;
+  async function flattenPages(svc, bytes, pages) {
+    const L = globalThis.PDFLib, N = (n) => L.PDFName.of(n);
+    const doc = await L.PDFDocument.load(bytes, { updateMetadata: false });
+    const ctx = doc.context, list = doc.getPages();
+    await svc.render(bytes, FLAT_DPI, (p) => pages.has(p), async (pg) => {
+      const n = pg.w * pg.h, d = pg.data;
+      let gray = true;
+      for (let i = 0; i < n * 4 && gray; i += 4) if (d[i] !== d[i + 1] || d[i] !== d[i + 2]) gray = false;
+      const raw = new Uint8Array(gray ? n : n * 3);
+      for (let i = 0; i < n; i++) { if (gray) raw[i] = d[i * 4]; else { raw[i * 3] = d[i * 4]; raw[i * 3 + 1] = d[i * 4 + 1]; raw[i * 3 + 2] = d[i * 4 + 2]; } }
+      const img = ctx.register(ctx.stream(await svc.deflate(raw), { Type: "XObject", Subtype: "Image", Width: pg.w, Height: pg.h, ColorSpace: gray ? "DeviceGray" : "DeviceRGB", BitsPerComponent: 8, Filter: "FlateDecode" }));
+      // the picture's corners where the page's own space puts them (its box and turn kept)
+      const [p00, p10, p01] = pg.corners, f = (v) => (Math.round(v * 10000) / 10000).toString();
+      const cm = [p10[0] - p00[0], p10[1] - p00[1], p01[0] - p00[0], p01[1] - p00[1], p00[0], p00[1]].map(f).join(" ");
+      const page = list[pg.page].node;
+      page.set(N("Contents"), ctx.register(ctx.stream(new TextEncoder().encode("q " + cm + " cm /IdentitySwapPage Do Q\n"))));
+      page.set(N("Resources"), ctx.obj({ XObject: { IdentitySwapPage: img } }));
+      for (const k of ["Annots", "Thumb", "StructParents", "Group"]) page.delete(N(k));
+    }, 4200);
+    return doc.save({ useObjectStreams: false, updateFieldAppearances: false });
   }
 
   /** What the folder step is handed: read and paint, with the reader, the codecs and the choice
@@ -1915,12 +2119,16 @@ const PDFSwapOCR = (() => {
       canRead: (path) => (svc.codec ? svc.codec.canRead(path) : !!mimeOf(path)),
       paintPdf: (ctx, bytes, pictures) => paintPdfPictures(svc, ctx, bytes, pictures),
       paintPicture: (bytes, path, pictures, rows) => paintPictureFile(svc, bytes, path, pictures, rows),
+      readDrawn: (bytes, model, prof, pictures) => readDrawnPages(svc, bytes, model, prof, pictures),
+      checkDrawn: (bytes, drawn, rows) => checkDrawnPages(svc, bytes, drawn, rows),
+      flatten: svc.render && svc.deflate ? (bytes, pages) => flattenPages(svc, bytes, pages) : null,
+      DRAWN_CHECK,
     };
   }
 
-  return { isIdCard, printedWords, photoSaid, toGray, resize, paper, flatten, lineMask, prepare, readPage, workerMain, SHARED, pool, pageText, profileParts, findOnPage, paint, verify, jpegQuality, bank, lineMetrics, refine, service,
+  return { isIdCard, printedWords, photoSaid, toGray, resize, paper, flatten, lineMask, prepare, readPage, readJob, workerMain, SHARED, pool, pageText, profileParts, findOnPage, paint, verify, jpegQuality, bank, lineMetrics, refine, service,
     mimeOf, unread, pictureNote, readPictureFile, readPdfPictures, paintPictureFile, paintPdfPictures,
-    orient, unorient, boxBack, placement, browserReader, decodeFile, encodeFile, deflate, glyphRenderer, pagePictures, pixelsOf };
+    orient, unorient, boxBack, placement, browserReader, renderPdf, readDrawnPages, checkDrawnPages, flattenPages, knownWords, unexplainedInk, decodeFile, encodeFile, deflate, glyphRenderer, pagePictures, pixelsOf };
 })();
 globalThis.PDFSwapOCR = PDFSwapOCR;
 if (typeof module !== "undefined") module.exports = PDFSwapOCR;

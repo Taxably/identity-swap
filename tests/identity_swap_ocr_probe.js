@@ -6,6 +6,7 @@
 const fs = require("fs"), os = require("os"), path = require("path"), zlib = require("zlib");
 const W = path.join(__dirname, "..", "web");
 globalThis.PDFSwapEngine = require(path.join(W, "engine.js"));
+const D = require(path.join(W, "docling.js"));
 const O = require(path.join(W, "ocr.js"));
 
 // ------------------------------------------------------------ PNG, as far as these tests need it
@@ -54,6 +55,21 @@ function fromPage(page, id) {
   if (!m) throw Error("the page carries no " + id);
   return m[1].replace(/<\\\/script/g, "</script").replace(/<\\!--/g, "<!--");
 }
+/** Docling's OCR engine out of the built page: ONNX Runtime's module and WebAssembly, and the
+ * PP-OCR models. Null with IDENTITY_SWAP_DOCLING=0, so a test can read with Tesseract alone. */
+async function docling(page) {
+  if (process.env.IDENTITY_SWAP_DOCLING === "0") return null;
+  // imported as the page imports it, from no file (the page's is a blob), so it runs the loader
+  // it carries rather than looking for one beside it
+  const ort = await import("data:text/javascript;base64," + Buffer.from(fromPage(page, "dl-ort")).toString("base64"));
+  const gz = (id) => zlib.gunzipSync(Buffer.from(fromPage(page, id).trim(), "base64"));
+  // its loader for the WebAssembly is imported from a file in node (it asks node where it is);
+  // the page hands it over as a blob
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dl-glue-")), file = path.join(dir, "ort-wasm-simd-threaded.mjs");
+  fs.writeFileSync(file, fromPage(page, "dl-glue"));
+  process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
+  return D.open(ort, { glue: require("url").pathToFileURL(file).href, wasm: gz("dl-wasm"), det: gz("dl-det"), rec: gz("dl-rec"), keys: fromPage(page, "dl-keys") });
+}
 async function reader(pagePath) {
   const page = fs.readFileSync(pagePath, "utf8");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ocr-core-"));
@@ -67,10 +83,11 @@ async function reader(pagePath) {
   const api = new M.TessBaseAPI();
   if (api.Init("/td", "eng", 1) !== 0) throw Error("the model did not load");
   fs.rmSync(dir, { recursive: true, force: true });
-  return O.pool(async () => ({ read: async (job) => O.readPage(M, api, job), close() {} }), 1);
+  const dl = await docling(page);
+  return O.pool(async () => ({ read: async (job) => O.readJob(M, api, dl, D, job), docling: !!dl, close() {} }), 1);
 }
 
-module.exports = { reader, pngDecode, pngEncode, fromPage, O };
+module.exports = { reader, docling, pngDecode, pngEncode, fromPage, O, D };
 if (require.main === module) (async () => {
   const [pagePath, jobsPath] = process.argv.slice(2);
   const jobs = JSON.parse(fs.readFileSync(jobsPath, "utf8"));

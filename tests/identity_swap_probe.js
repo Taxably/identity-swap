@@ -80,6 +80,10 @@ const FAMILY = [
     "Dependent 1   Marigold Ostrander",
     "Dependent 2   Caspian Ostrander",
     "Employer:   Thornbury Survey Group",
+    // a spouse a reader read with one space between the fields, whose first name no table holds
+    // and whose surname is also a word; and a label followed by a form's own words
+    "Spouse: Dmitri Vance SSN 529-61-0447",
+    "Spouse: Not Applicable",
   ]],
   ["/2025/dependents.csv", ["Name,Relationship", "Marigold Ostrander,Daughter", "Caspian Ostrander,Son"]],
   ["/2025/W2.pdf", [

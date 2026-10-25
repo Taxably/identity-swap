@@ -14,7 +14,10 @@ held:
     preparer on the line after "Preparer's name"; and in a second household, dependents named
     only in a sentence or a table ("we have Marigold Ostrander and Caspian Ostrander as
     dependents", "Dependent 1   Marigold Ostrander"), a middle initial, an employer written
-    without LLC or Inc, and an SSN a spreadsheet keeps as nine digits beside its label
+    without LLC or Inc, an SSN a spreadsheet keeps as nine digits beside its label, and a spouse
+    a reader read with one space between the fields ("Spouse: Dmitri Vance SSN 529-61-0447"),
+    whose first name no table holds and whose surname is also a word ("Spouse: Not Applicable"
+    stays)
   * a middle initial and a business's words after its first are swapped only inside the names
     they were found in, never on their own ("the survey was mailed" stays), while the business's
     name inside a web address is swapped whatever the address ends in; a child the folder calls a
@@ -225,6 +228,18 @@ def test_dependents_named_only_in_a_sentence_or_a_table_are_found(probe):
     assert sentence.startswith("This year we have ") and sentence.endswith(" as dependents."), sentence
     table = fam["after"][fam["before"].index("Dependent 1   Marigold Ostrander")]
     assert table.startswith("Dependent 1   ") and "Marigold" not in table, table
+
+
+def test_a_spouse_read_with_one_space_between_fields_and_a_name_no_table_holds_is_found(probe):
+    # "Spouse: Dmitri Vance SSN 529-61-0447", as a reader gives a line it read: the name stops
+    # at the SSN, and the label is evidence enough for a first name the tables lack and a surname
+    # that is also a word; a label followed by a form's own words is no name
+    fam = probe["family"]
+    names = found(fam, "name")
+    assert {"Dmitri", "Vance"} <= set(names), names
+    line = fam["after"][fam["before"].index("Spouse: Dmitri Vance SSN 529-61-0447")]
+    assert line.startswith("Spouse: ") and "Dmitri" not in line and "Vance" not in line and "529-61-0447" not in line, line
+    assert fam["after"][fam["before"].index("Spouse: Not Applicable")] == "Spouse: Not Applicable"
 
 
 def test_a_child_called_a_daughter_or_a_son_gets_a_stand_in_from_that_list(probe):
