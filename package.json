@@ -8,6 +8,7 @@
     "fflate": "0.8.3",
     "gifenc": "1.0.3",
     "libheif-js": "1.23.5",
+    "onnxruntime-web": "1.22.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "3.11.174",
     "tesseract.js-core": "7.0.0",

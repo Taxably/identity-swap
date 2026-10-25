@@ -1,19 +1,22 @@
 """Build identity-swap.html: one file, every library inside it, no network at run time.
 
-    python build.py --libs <node_modules folder> [--out FILE]
+    python build.py --libs <node_modules folder> --models <folder> [--out FILE]
 
 The folder is a node_modules folder holding pdf-lib 1.17.1 (with pako), pdfjs-dist 3.11.174,
 tesseract.js-core 7.0.0, @tesseract.js-data/eng 1.0.0, fflate 0.8.3, utif 3.1.0, gifenc 1.0.3,
-libheif-js 1.23.5 and tracking 1.1.3. Each file is checked against the
-SHA-256 pinned below before it goes in, and its licence goes in with it. The OCR engine's
-WebAssembly and its English model go in as base64, the model still gzipped (the page unpacks it
-with the browser's own DecompressionStream).
+libheif-js 1.23.5, tracking 1.1.3 and onnxruntime-web 1.22.0. --models is the folder
+fetch_docling_models.py fills with the PP-OCR models docling's RapidOCR engine runs. Each file is
+checked against the SHA-256 pinned below before it goes in, and its licence goes in with it. The
+OCR engines' WebAssembly and their models go in as base64; Tesseract's model, ONNX Runtime's
+WebAssembly and the PP-OCR models go in gzipped (the page unpacks them with the browser's own
+DecompressionStream).
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import gzip
 import hashlib
 import importlib.metadata
 import os
@@ -53,7 +56,14 @@ LICENCES = [("pdf-lib 1.17.1", "pdf-lib/LICENSE.md"), ("pako 1.0.11 (inside pdf-
 OCR_CORE = ("tesseract.js-core/tesseract-core-simd-lstm.js", "e48e2f02ddae3716c8dd24bf41cd290d4efa96892d689cdc4013c2545d63f469")
 OCR_WASM = ("tesseract.js-core/tesseract-core-simd-lstm.wasm", "34e8d50cac216427d86bf397d610fdd9f49492539bbcdfbfccc4eda20c810bea")
 OCR_MODEL = ("@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz", "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91")
-APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js"]
+# docling's OCR engine: RapidOCR's PP-OCR models, run by ONNX Runtime's WebAssembly build (MIT)
+DL_ORT = ("onnxruntime-web/dist/ort.wasm.bundle.min.mjs", "e53392ea5f0e654acf1866c16564b340661ed5d238f692c3c2bd40b940f924a2")
+DL_GLUE = ("onnxruntime-web/dist/ort-wasm-simd-threaded.mjs", "30dd851d9c00622940500f71ddd2ff8820c5cb65270816080175b958705385a8")
+DL_WASM = ("onnxruntime-web/dist/ort-wasm-simd-threaded.wasm", "71aef04959c5c1b6de461b6538e2058e306610034a85aad2742d0c7fd4533fe4")
+DL_DET = ("ch_PP-OCRv5_mobile_det.onnx", "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae")
+DL_REC = ("en_PP-OCRv5_rec_mobile_infer.onnx", "c3461add59bb4323ecba96a492ab75e06dda42467c9e3d0c18db5d1d21924be8")
+DL_KEYS = ("ppocrv5_en_dict.txt", "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6")
+APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "docling.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js"]
 
 
 def read_pinned(libs: str, rel: str, digest: str, binary: bool = False):
@@ -74,6 +84,7 @@ def inline(js: str) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--libs", required=True)
+    ap.add_argument("--models", required=True)
     ap.add_argument("--out", default=os.path.join(os.path.dirname(HERE), "identity-swap.html"))
     args = ap.parse_args()
     with open(os.path.join(HERE, "template.html"), encoding="utf-8") as fh:
@@ -101,11 +112,23 @@ def main() -> int:
     ocr_core = inline(read_pinned(args.libs, *OCR_CORE))
     ocr_wasm = base64.b64encode(read_pinned(args.libs, *OCR_WASM, binary=True)).decode("ascii")
     ocr_model = base64.b64encode(read_pinned(args.libs, *OCR_MODEL, binary=True)).decode("ascii")
+    with open(os.path.join(HERE, "docling-LICENSES.txt"), encoding="utf-8") as fh:
+        notices.append(fh.read())
+    # gzip with no name or time in it, so the same inputs always give the same page
+    gz = lambda b: base64.b64encode(gzip.compress(b, 9, mtime=0)).decode("ascii")  # noqa: E731
+    dl_ort = inline(read_pinned(args.libs, *DL_ORT))
+    dl_glue = inline(read_pinned(args.libs, *DL_GLUE))
+    dl_wasm = gz(read_pinned(args.libs, *DL_WASM, binary=True))
+    dl_det = gz(read_pinned(args.models, *DL_DET, binary=True))
+    dl_rec = gz(read_pinned(args.models, *DL_REC, binary=True))
+    dl_keys = inline(read_pinned(args.models, *DL_KEYS))
     dist = importlib.metadata.distribution("pdfminer.six")
     lic = next(f for f in dist.files if "LICENSE" in str(f).upper())
     notices.append("==== pdfminer.six (encoding tables and font widths in data.js) ====\n" + lic.read_text())
     page = (page.replace("/*@@LIBS@@*/", libs).replace("/*@@WORKER@@*/", worker)
             .replace("/*@@OCRCORE@@*/", ocr_core).replace("/*@@OCRWASM@@*/", ocr_wasm).replace("/*@@OCRMODEL@@*/", ocr_model)
+            .replace("/*@@DLORT@@*/", dl_ort).replace("/*@@DLGLUE@@*/", dl_glue).replace("/*@@DLWASM@@*/", dl_wasm).replace("/*@@DLDET@@*/", dl_det)
+            .replace("/*@@DLREC@@*/", dl_rec).replace("/*@@DLKEYS@@*/", dl_keys)
             .replace("/*@@APP@@*/", inline("\n".join(app)))
             .replace("/*@@NOTICES@@*/", "\n\n".join(notices).replace("-->", "-- >")))
     with open(args.out, "w", encoding="utf-8", newline="\n") as fh:

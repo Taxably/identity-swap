@@ -6,8 +6,9 @@ repository is a build output. A change to a source under web/ that nobody
 rebuilt would ship a page that does something the source no longer says. The page reads clients'
 documents, so it is also held to what its header promises: no request leaves it. The OCR engine
 and its English model ride inside it too, and so do the libraries that open and write Office
-files, TIFFs, GIFs and HEIC photos, and the face detector that finds the photo on an ID card: each
-is held to the file build.py pins, with its licence.
+files, TIFFs, GIFs and HEIC photos, the face detector that finds the photo on an ID card, and docling's
+OCR engine (ONNX Runtime and the PP-OCR models RapidOCR runs): each is held to the file build.py
+pins, with its licence.
 """
 
 import os
@@ -17,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = ROOT
 WEB = os.path.join(TOOL, "web")
 PAGE = os.path.join(TOOL, "identity-swap.html")
-APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js"]
+APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "docling.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js"]
 
 
 def _read(path):
@@ -94,11 +95,36 @@ def test_the_reader_and_its_model_are_the_pinned_files():
     assert hashlib.sha256(base64.b64decode(tag("ocr-model"))).hexdigest() == pins["MODEL"]
 
 
+def test_doclings_ocr_engine_and_its_models_are_the_pinned_files():
+    import base64
+    import gzip
+    import hashlib
+    build = _read(os.path.join(WEB, "build.py"))
+    pins = dict(re.findall(r'^DL_([A-Z]+) = \("[^"]+", "([0-9a-f]{64})"\)', build, re.M))
+    assert set(pins) == {"ORT", "GLUE", "WASM", "DET", "REC", "KEYS"}
+    page = _read(PAGE)
+
+    def tag(name):
+        return re.search(r'<script type="text/plain" id="%s">(.*?)</script>' % name, page, re.S).group(1)
+
+    def plain(name):
+        return tag(name).replace("<\\/script", "</script").replace("<\\!--", "<!--").encode("utf-8")
+    assert hashlib.sha256(plain("dl-ort")).hexdigest() == pins["ORT"]
+    assert hashlib.sha256(plain("dl-glue")).hexdigest() == pins["GLUE"]
+    assert hashlib.sha256(plain("dl-keys")).hexdigest() == pins["KEYS"]
+    for name in ("WASM", "DET", "REC"):
+        data = gzip.decompress(base64.b64decode(tag("dl-" + name.lower())))
+        assert hashlib.sha256(data).hexdigest() == pins[name], name
+
+
 def test_the_page_carries_the_readers_licences():
     page = _read(PAGE)
     notices = _read(os.path.join(WEB, "ocr-LICENSES.txt")).replace("-->", "-- >")
     assert notices in page
     assert "tesseract.js-core 7.0.0" in page
+    second = _read(os.path.join(WEB, "docling-LICENSES.txt")).replace("-->", "-- >")
+    assert second in page
+    assert "==== ONNX Runtime Web 1.22.0" in page and "==== PP-OCRv5 models" in page
 
 
 def _build():

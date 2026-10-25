@@ -40,14 +40,24 @@
       const b64 = (id) => { const t = atob($(id).textContent.trim()), out = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) out[i] = t.charCodeAt(i); return out; };
       const gunzip = async (bytes) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
       const size = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
-      reader = OCR.browserReader({ glue: $("ocr-core").textContent, wasm: b64("ocr-wasm"), model: await gunzip(b64("ocr-model")), size });
+      // docling's OCR engine (PP-OCR on ONNX Runtime) reads beside Tesseract in each worker; if
+      // it cannot start, Tesseract reads alone and the page says so
+      let docling = null;
+      try {
+        const plain = (id) => $(id).textContent.replace(/<\\\/script/g, "</script").replace(/<\\!--/g, "<!--");
+        docling = { ort: plain("dl-ort"), glue: plain("dl-glue"), wasm: await gunzip(b64("dl-wasm")), det: await gunzip(b64("dl-det")), rec: await gunzip(b64("dl-rec")), keys: plain("dl-keys") };
+      } catch (e) { docling = null; }
+      reader = OCR.browserReader({ glue: $("ocr-core").textContent, wasm: b64("ocr-wasm"), model: await gunzip(b64("ocr-model")), size, docling });
+      try { S.docling = await reader.second(); } catch (e) { S.docling = { docling: false, why: String((e && e.message) || e) }; }
     } catch (e) { reader = false; }
     return reader || null;
   }
   function ocrService() {
     if (!reader) return null;
     return OCR.service({ reader, codec: PDFSwapPictures, decode: OCR.decodeFile, encode: OCR.encodeFile, deflate: OCR.deflate, renderer: OCR.glyphRenderer, marks: S.marks,
-      pdfjs: (bytes) => pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false, useSystemFonts: true, verbosity: 0 }).promise });
+      pdfjs: (bytes) => pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false, useSystemFonts: true, verbosity: 0 }).promise,
+      // a PDF's pages drawn, for docling's reader to read as they look
+      render: (bytes, dpi, want, each, most) => OCR.renderPdf((b) => pdfjsLib.getDocument({ data: b.slice(), isEvalSupported: false, useSystemFonts: true, verbosity: 0 }).promise, bytes, dpi, want, each, most) });
   }
 
   // ------------------------------------------------------------------ step 1: the folder
@@ -105,7 +115,9 @@
     fill(out, el("div", { class: "progress", role: "progressbar", "aria-label": "Reading the folder" }, bar), line);
     const total = files.reduce((n, f) => n + f.size, 0), t0 = Date.now();
     let bytes = 0;
-    const pictures = files.some((f) => /\.(pdf|jpe?g|png|webp)$/i.test(f.path));
+    // every kind the reader reads: a PDF's pages and pictures, every picture kind, the pictures
+    // inside an Office file, and whatever a zip archive holds
+    const pictures = files.some((f) => /^(pdf|picture|office|zip)$/.test(FOLDER.kindOf(f.path)));
     if (pictures) { line.textContent = "Starting the reader for scans and photos"; await ocrReader(); }
     const sizes = new Map(files.map((f) => [f.path, f.size]));
     const { profiles, status } = await FOLDER.analyze(files, {
@@ -151,6 +163,7 @@
         [c.scan && plural(c.scan, "picture") + " with no text the reader could find", c.unreadable && plural(c.unreadable, "PDF") + " whose text cannot be read", c.other && plural(c.other, "file") + " of other kinds", c.skipped && plural(c.skipped, "locked or unreadable file")].filter(Boolean).join(", ") +
         "). Step 3 lists them and leaves them out unless you choose to copy them unchanged.") : null,
       reader === false ? el("p", { class: "note warn" }, "This browser cannot run the reader for scans and photos, so they are left out. Chrome or Edge can.") : null,
+      reader && S.docling && !S.docling.docling ? el("p", { class: "note warn" }, "Docling's OCR engine could not start in this browser" + (S.docling.why ? " (" + S.docling.why + ")" : "") + ", so scans and photos were read by Tesseract alone, which misses more. Chrome or Edge can run both.") : null,
       c.unread ? el("p", { class: "note warn" }, plural(c.unread, "file") + " also " + (c.unread === 1 ? "holds" : "hold") + " marks on a scan or picture the reader could not make out as words (handwriting, a signature, a stamp, or a picture's own artwork). Step 3 asks what to do with them.") : null);
   }
 

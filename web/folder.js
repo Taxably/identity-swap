@@ -80,7 +80,7 @@ const PDFSwapFolder = (() => {
     }
     await Promise.all(running);
   }
-  const SCANNED = "scanned page";
+  const SCANNED = "scanned page", DRAWN = "drawn on the page";
   /** The pictures OCR read, as lines of text a finding step can read like any other. A scanned
    * line has no font to look up, so its width is judged by a standard one of its kind (any letter
    * can be drawn on a picture, so none is ever missing). */
@@ -121,21 +121,33 @@ const PDFSwapFolder = (() => {
           else {
             const prof = PII().profile(opened.model, f.path);
             const pages = opened.model.pages.length;
-            let pictures = [], read = 0;
+            let pictures = [], read = 0, drawn = [];
             if (ocr) { const got = await ocr.readPdf(bytes, opened.model); pictures = got.pictures; read = got.symbols; }
             addPictures(prof, pictures);
+            // the pages as they are drawn, read where they show text the file does not hold as
+            // letters: searched like the rest, and every copy is read again for it
+            if (ocr && ocr.readDrawn) drawn = await ocr.readDrawn(bytes, opened.model, prof, pictures);
+            for (const d of drawn) prof.blocks.push({ lines: d.lines, where: DRAWN, page: d.page });
             put(prof);
             const failed = pictures.filter((p) => p.failed).map((p) => p.failed);
             const notes = pictures.map((p) => p.res && globalThis.PDFSwapOCR.pictureNote(p.res, p.inset ? "a picture on page " + (p.page + 1) : "page " + (p.page + 1) + " (scanned)", !!p.inset)).filter(Boolean);
             // text a font gives no letters for cannot be searched for names, so a copy of it could
             // carry them unseen: it is held back like a scan, never copied as if it were clean
+            const drawnNote = drawn.length ? "; docling's reader read its pages as they are drawn, so what they show is found and swapped everywhere else, but this file would still show it" : "";
+            // text the file holds only as shapes, or in a font that gives no letters back: its pages
+            // are drawn again as pictures in the copy and painted like scans
+            const flat = drawn.length && ocr && ocr.flatten && (prof.glyphs === 0 || prof.unreadable > 0.2) ? drawn.map((d) => d.page) : null;
             status.set(f.path, failed.length
               ? { kind, state: "skipped", pages, why: failed.join("; ") + ", so it cannot be searched for names and numbers" }
-              : prof.glyphs === 0 && !read
-                ? { kind, state: "scan", pages, why: ocr ? "its pages are pictures that hold no text the reader could find" : unreadNote }
-                : prof.unreadable > 0.2
-                  ? { kind, state: "unreadable", pages, why: "most of its text is drawn in a font that gives no letters back, so it cannot be read to find names and numbers in it; its copy could still carry them" }
-                  : { kind, state: "ok", pages, pictures, scanned: pictures.filter((p) => p.res).length, notes });
+              : flat
+                ? { kind, state: "ok", pages, pictures, drawn, flatten: flat, scanned: pictures.filter((p) => p.res).length, notes }
+                : prof.glyphs === 0 && !read && drawn.length
+                ? { kind, state: "unreadable", pages, drawn, why: "its pages draw their text as shapes, not letters, so nothing on them can be swapped" + drawnNote }
+                : prof.glyphs === 0 && !read
+                  ? { kind, state: "scan", pages, why: ocr ? "its pages are pictures that hold no text the reader could find" : unreadNote }
+                  : prof.unreadable > 0.2
+                    ? { kind, state: "unreadable", pages, drawn, why: "most of its text is drawn in a font that gives no letters back, so it cannot be swapped" + (drawnNote || "; it could not be read to find names and numbers in it, and its copy could still carry them") }
+                    : { kind, state: "ok", pages, pictures, drawn, scanned: pictures.filter((p) => p.res).length, notes });
           }
         } else if (kind === "office") {
           let got;
@@ -207,18 +219,46 @@ const PDFSwapFolder = (() => {
         // writing on a scan that could not be read is held back, when that is what was chosen
         if (ocr && ocr.marks === "hold" && r.warnings.length && st.state === "ok") { r.result = "not written"; r.why = "it holds writing that could not be read (" + r.warnings.join("; ") + ")"; }
         else if (st.kind === "pdf" && st.state === "ok") {
-          const bytes = await f.read();
-          const paint = ocr && st.pictures && st.pictures.length ? (ctx) => ocr.paintPdf(ctx, bytes, st.pictures) : null;
-          const res = await E().swap(bytes, rows, { forms, metadata, spacing, paint });
-          r.found = res.occurrences.length; r.swapped = res.occurrences.filter((o) => o.replaced).length; r.occurrences = res.occurrences;
+          const original = await f.read();
+          // pages that show text the file does not hold as letters are drawn and read again
+          const drawnCheck = async (b) => (ocr && ocr.checkDrawn && st.drawn && st.drawn.length ? [await ocr.checkDrawn(b, st.drawn, rows)] : []);
+          // one go at the file: swapped and checked, nothing written yet
+          const attempt = async (bytes, pictures) => {
+            const paint = ocr && pictures && pictures.length ? (ctx) => ocr.paintPdf(ctx, bytes, pictures) : null;
+            const res = await E().swap(bytes, rows, { forms, metadata, spacing, paint });
+            let checks = [];
+            if (!res.skipped && !res.output) checks = await drawnCheck(bytes);
+            else if (!res.skipped) {
+              checks = (res.pictureChecks || []).concat(await E().selfCheck(bytes, res, rows, { forms, metadata }));
+              if (check) checks = checks.concat(await check(bytes, res.output, res, rows));
+              checks = checks.concat(await drawnCheck(res.output));
+            }
+            return { bytes, res, checks };
+          };
+          // the pages that still show an original value, drawn again as pictures and painted
+          const redrawn = async (pages) => {
+            const b = await ocr.flatten(original, new Set(pages));
+            const opened = await E().open(b, { forms });
+            if (opened.skipped) return null;
+            const got = await attempt(b, (await ocr.readPdf(b, opened.model)).pictures);
+            const n = pages.length, list = pages.map((p) => p + 1).join(", ");
+            r.warnings.push((n === 1 ? "page " + list + " shows" : "pages " + list + " show") + " text the file does not hold as letters (drawn as shapes, or in a font that gives no letters back), so " + (n === 1 ? "it was" : "they were") + " drawn again as " + (n === 1 ? "a picture" : "pictures") + " and painted like a scan; " + (n === 1 ? "its" : "their") + " text can no longer be selected or searched");
+            return got;
+          };
+          let go = st.flatten && st.flatten.length ? await redrawn(st.flatten) : null;
+          if (!go) {
+            go = await attempt(original, st.pictures);
+            const left = go.checks.find((c) => ocr && c.name === ocr.DRAWN_CHECK && !c.passed);
+            if (left && left.pages && left.pages.length && ocr.flatten) go = (await redrawn(left.pages)) || go;
+          }
+          const { bytes, res } = go;
+          r.found = res.occurrences.length; r.swapped = res.occurrences.filter((o) => o.replaced).length; r.occurrences = res.occurrences; r.checks = go.checks;
           if (res.warnings) r.warnings = [...new Set(r.warnings.concat(res.warnings))];
           if (res.skipped) { r.result = "skipped"; r.why = res.skipped; }
           else if (!res.output) {
-            if (r.found > r.swapped) { r.result = "not written"; verdict(r); }
+            if (r.found > r.swapped || r.checks.some((c) => !c.passed)) { r.result = "not written"; verdict(r); }
             else { r.result = "copied"; r.why = r.found ? r.why : "nothing to swap in it"; await put(bytes); }
           } else {
-            r.checks = (res.pictureChecks || []).concat(await E().selfCheck(bytes, res, rows, { forms, metadata }));
-            if (check) r.checks = r.checks.concat(await check(bytes, res.output, res, rows));
             const ok = verdict(r);
             r.result = ok ? "swapped" : "not written";
             if (ok) await put(res.output);

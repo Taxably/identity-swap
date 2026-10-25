@@ -501,6 +501,20 @@ const PDFSwapPII = (() => {
     const kept = toks.filter(({ t: w }) => ev.known(w) || ev.plausible(w));
     return kept.some(({ t: w }) => ev.known(w)) ? kept : null;
   }
+  /** After a label that names a person ("Spouse:", "Taxpayer:", "Dependent 2"), two to four
+   * capitalized words that could be names are the person's name, though no table holds them
+   * ("Dmitri Vance": a first name the tables lack, a surname that is also a word): the label is
+   * the evidence the tables would otherwise be. */
+  const PERSON_LABEL = /\b(?:taxpayer|spouse|recipient|student|borrower|employee|account holder|beneficiary|participant|insured|patient|client|dependent|child|son|daughter|qualifying (?:child|person|relative))\b/i;
+  const NEXT_FIELD = /\s+(?=(?:SSN|SS#|TIN|ITIN|EIN|DOB|D\.O\.B\.?|ID|Phone|Tel|Telephone|E-?mail|Address|Acct|Account|Date|Age|Relationship)\b|\S*\d)/i;
+  function labelledPerson(text, ev) {
+    const t = text.replace(/\s+/g, " ").trim().replace(HONORIFIC, "");
+    if (!t || INSTITUTION.test(t) || new RegExp(BUSINESS.source).test(t + " ")) return null;
+    const words = (t.match(WORDS) || []).filter((w) => w.length > 1);
+    if (words.length < 2 || words.length > 4 || words.some((w) => !/^\p{Lu}/u.test(w) || !isNameWord(w) || !ev.plausible(w))) return null;
+    const toks = nameTokens(t, { strict: true });
+    return toks && toks.every(({ t: w }) => ev.plausible(w)) ? toks : null;
+  }
   /** First names beside the family's surname in running text: each adjacent pair "First
    * Surname", or "First M Surname" and "First M. Surname", where the surname is a word the client
    * folder's name gives as a surname and the first word is a plausible name, not a label, an
@@ -729,8 +743,11 @@ const PDFSwapPII = (() => {
           }
           const lab = LABEL.exec(line);
           if (lab) {
-            const rest = lab[1].split(/\s{3,}|\t/)[0];
-            const toks = personPhrase(rest, ev, false);
+            // the name runs to where the line goes on to something else: a wide gap or a tab, and
+            // where a reader read the gap as one space, a number or the next label ("Spouse:
+            // Dmitri Okonkwo SSN 529-61-0447")
+            const rest = lab[1].split(/\s{3,}|\t/)[0].split(NEXT_FIELD)[0];
+            const toks = personPhrase(rest, ev, false) || (PERSON_LABEL.test(lab[0].slice(0, lab[0].length - lab[1].length)) ? labelledPerson(rest, ev) : null);
             if (toks) addPhrase(rest, toks, file, "labelled line", lineKey);
           }
           // "Preparer's name" or "RECIPIENT'S name" at the end of a line: the name is the next line
