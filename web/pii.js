@@ -175,6 +175,10 @@ const PDFSwapPII = (() => {
     "catholic food foster children friends goodwill organization qualifying eligible southern northern western eastern " +
     "joint tenants jtwros tod ten com wros jt tic poa trustee executor guardian custodial minor " +
     "mr mrs ms dr jr sr ii iii iv md dds esq phd " +
+    "president vice ceo cfo coo cto cio founder cofounder co-founder chairman chairwoman chairperson secretary treasurer " +
+    "manager managing intern interns principal staff analyst consultant engineer developer reviewer administrator " +
+    "assistant coordinator executive chief officer officers controller bookkeeper accountant auditor attorney counsel " +
+    "paralegal clerk notary registrar organizer incorporator signatory " +
     "prepared preparer client clients taxpayer spouse dependent dependents organizer documents document files folder " +
     "owner owners donor member members holder holders shareholder shareholders officer director contact attention attn " +
     "signer signature beneficiary participant insured patient payee agent representative " +
@@ -198,6 +202,24 @@ const PDFSwapPII = (() => {
   const STATES = new Set("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC PR VI GU AS MP".split(" "));
   const LABEL_WORDS = new Set(("name names address addresses recipient recipients payer payee filer taxpayer spouse student borrower lender employer employee account number street city state zip code telephone phone email date birth identification tin ssn ein box " +
     "dependent dependents child children son daughter relationship qualifying").split(" "));
+  // words that only point or join (articles, prepositions, conjunctions, pronouns, helping
+  // verbs): never the start of a business's own name, and right before LLC or Company they make it
+  // a contract's word for a company ("the Company", "PER LLC", "Because Company"), not a name
+  const FUNCTION_WORDS = new Set(("a an the this that these those such said same each every any all no some per " +
+    "of to in on at by for from with into onto upon over under between among about after before during within without " +
+    "through against toward towards via than as and or nor but if when while because since unless until although though " +
+    "whether so then thus also not only its it his her their our your my whose which what who whom where why how " +
+    "is are was were be been being am will shall may might must can could would should do does did has have had " +
+    "new other another one second third fourth fifth").split(" "));
+  // a Roman numeral ("PART VIII"), an acronym's plural ("PRs") or a product written in CamelCase
+  // ("OneDrive", "AplPay") is never a person's name; McDonald, DeShawn and LaToya are
+  const ROMAN = /^(?=[MDCLXVI]{2,}$)M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})$/;
+  const CAMEL_OK = /^(?:Mc|Mac|La|Le|De|Da|Di|Du|Van|Von|Jo|Ja|Ke|Ty|O['’]|D['’])\p{Lu}/u;
+  const notAName = (w) => (ROMAN.test(w) && !inLists(w)) || /^\p{Lu}{2,}s$/u.test(w) || (/\p{Ll}\p{Lu}/u.test(w) && !CAMEL_OK.test(w));
+  // a person's name followed by one of these is the place named for them ("John G. Townsend Building")
+  const NAMED_PLACE = /\s(?:Building|Bldg|Tower|Towers|Plaza|Memorial|Airport|Library|Museum|Stadium|Arena|Courthouse|Auditorium|Pavilion)\b/i;
+  // a role written after a name ("Corwin Halvorsby, President", "Delphine Achterberg (Tax Intern)")
+  const ROLE_AFTER = /(?:,\s*|\s+-\s+|\s+[–—]\s+)(?:(?:Vice|Executive|Managing|Senior|Tax|Staff|General|Chief)\s+)*(?:President|CEO|CFO|COO|CTO|Founder|Co-?Founder|Partner|Principal|Owner|Member|Manager|Director|Secretary|Treasurer|Intern|Preparer|Reviewer|Counsel|Officer|Chair(?:man|woman|person)?)\b.*$/i;
   const VOWELS = "aeiou";
   const CONS = "bcdfghjklmnprstvwz";
 
@@ -220,7 +242,7 @@ const PDFSwapPII = (() => {
   }
   const title = (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
   const stem = (w) => w.replace(/['’]s$/i, "").toLowerCase();
-  const isNameWord = (w) => /^[\p{L}][\p{L}'’]*[\p{L}]$/u.test(w) && !NOT_NAME.has(stem(w)) && !LABEL_WORDS.has(stem(w));
+  const isNameWord = (w) => /^[\p{L}][\p{L}'’]*[\p{L}]$/u.test(w) && !NOT_NAME.has(stem(w)) && !LABEL_WORDS.has(stem(w)) && !notAName(w);
   function byLength(list) { const m = new Map(); for (const w of list) { if (!m.has(w.length)) m.set(w.length, []); m.get(w.length).push(w); } return m; }
   // The libraries (names.js): every first name the SSA's and the Census Bureau's tables carry, and
   // the 50,000 most common surnames of the 2010 census, each list most popular first. A name that
@@ -252,6 +274,13 @@ const PDFSwapPII = (() => {
     if (!FIRST_SET.has(l) && !LAST_SET.has(l)) return false;
     if (!WORDLIKE.has(l)) return true;
     return (RANK_F.get(l) ?? Infinity) < 300 || (RANK_M.get(l) ?? Infinity) < 300 || (RANK_L.get(l) ?? Infinity) < 1000;
+  };
+
+  /** Among the names people commonly carry: on the short lists, or high on the tables ("LEE" in
+   * capitals is a surname; "IP" is an acronym). */
+  const commonName = (w) => {
+    const l = w.toLowerCase();
+    return CURATED.has(l) || (RANK_F.get(l) ?? Infinity) < 1000 || (RANK_M.get(l) ?? Infinity) < 1000 || (RANK_L.get(l) ?? Infinity) < 5000;
   };
 
   // ---------------------------------------------------------------- real places
@@ -443,12 +472,17 @@ const PDFSwapPII = (() => {
    * (first, middle, last), or null. "Last, First & Second" and "First Middle Last" both read. */
   function nameTokens(text, { strict }) {
     const cleaned = text.replace(/\s+/g, " ").trim();
-    if (!cleaned || /\d/.test(cleaned) || cleaned.length > 90 || INSTITUTION.test(cleaned)) return null;
+    if (!cleaned || /\d/.test(cleaned) || cleaned.length > 90 || INSTITUTION.test(cleaned) || NAMED_PLACE.test(cleaned)) return null;
+    // on a line that writes words in Title Case, a short word in capitals is an acronym ("IP
+    // Filings", "HTML Exports"), unless the name lists hold it ("Ann LEE")
+    const titled = /(?<![\p{L}'’])\p{Lu}\p{Ll}/u.test(cleaned);
+    const acronym = (w) => titled && w.length <= 4 && w === w.toUpperCase() && !commonName(w);
+    const nameWord = (w) => isNameWord(w) && /^\p{Lu}/u.test(w) && !acronym(w);
     let names = 0, other = 0, label = false;
     for (const w of cleaned.match(WORDS) || []) {
       if (w.length === 1 || /^and$/i.test(w)) continue;
       if (LABEL_WORDS.has(stem(w))) label = true;
-      if (isNameWord(w) && /^\p{Lu}/u.test(w)) names++; else other++;
+      if (nameWord(w)) names++; else other++;
     }
     if (!names || label) return null;
     if (strict ? names < 2 || other > 0 : other > names) return null;
@@ -458,14 +492,14 @@ const PDFSwapPII = (() => {
       const words = (seg.match(/[\p{L}][\p{L}'’-]*/gu) || []).filter((w) => w.length > 1);
       const named = [];
       words.forEach((w, i) => w.split(/[-–]/).forEach((part) => named.push({ part, last: i === words.length - 1 && words.length > 1, first: i === 0 })));
-      const kept = named.filter((n) => n.part.length > 1 && isNameWord(n.part) && /^\p{Lu}/u.test(n.part));
+      const kept = named.filter((n) => n.part.length > 1 && nameWord(n.part));
       kept.forEach((n) => out.push({ t: n.part, role: lastFirst || n.last ? "last" : kept.length === 1 || n.first ? "first" : "middle" }));
     };
     const comma = /^([^,&]+),\s*(.+)$/.exec(cleaned);
     if (comma) {
       person(comma[1], true);
       for (const seg of comma[2].split(/\s*(?:&|\band\b)\s*/i)) {
-        const words = (seg.match(WORDS) || []).filter((w) => w.length > 1 && isNameWord(w));
+        const words = (seg.match(WORDS) || []).filter((w) => w.length > 1 && nameWord(w));
         words.forEach((w, i) => out.push({ t: w, role: i === 0 ? "first" : "middle" }));
       }
     } else {
@@ -475,14 +509,43 @@ const PDFSwapPII = (() => {
     return out.length ? out : null;
   }
 
-  /** A client folder's name read as people's names: "Last, First", or two or more name words, or
-   * one word that is on the name lists. "Private" or "Archive" is a folder, not a client. */
-  function folderName(name) {
+  /** A client folder's name read as people's names. "Last, First M" is the firm's own way of
+   * writing a client, and reads as one. Without the comma, the folder is named for a task
+   * ("Entity Formation", "Build Scripts", "Nirav Assignment Remediation") unless every word could
+   * be a name and at least half are on the name lists as names, not words; one word must be on
+   * the lists. With the folder's text to hand (`everyday`, the words it writes in small letters),
+   * a word the folder uses as an ordinary word ("remediation", "exports") is not a name either:
+   * no word of a name without the comma may be one, and not most of a name with it. */
+  function folderName(name, everyday = null) {
     const cleaned = name.replace(/_+/g, " ").replace(/\b(19|20)\d{2}\b/g, " ").replace(/[()[\]]/g, " ").replace(/\s+/g, " ").trim();
     const toks = nameTokens(cleaned, { strict: false });
     if (!toks) return null;
-    if (toks.length < 2 && !/,/.test(cleaned) && !inLists(toks[0].t)) return null;
+    const comma = /,/.test(cleaned);
+    const full = toks.filter(({ t }) => t.length > 1);
+    if (!full.length) return null;
+    const strong = (w) => inLists(w) && !ALSO_A_WORD.has(w.toLowerCase());
+    const plainWord = (w) => !!everyday && everyday.has(w.toLowerCase());
+    if (!comma) {
+      if (full.length < 2) return strong(full[0].t) && !plainWord(full[0].t) ? toks : null;
+      // every word of the folder's name a name word: "Raw Source Exports" fails on "Raw"
+      const words = (cleaned.match(WORDS) || []).filter((w) => w.length > 1 && !/^(?:and|the|family|household|trust|estate|joint)$/i.test(w));
+      if (words.length !== full.length) return null;
+      if (full.filter(({ t }) => strong(t)).length * 2 < full.length) return null;
+      if (full.some(({ t }) => plainWord(t))) return null;
+      return toks;
+    }
+    if (full.filter(({ t }) => plainWord(t)).length * 2 > full.length) return null;
     return toks;
+  }
+  /** The words a folder writes in small letters somewhere: its everyday words. A web address in
+   * small letters ("acmeplumbing.com") is a name written small, not an everyday word. */
+  function everydayWords(profiles) {
+    const everyday = new Set();
+    for (const prof of profiles) for (const block of prof.blocks) for (const line of block.lines) {
+      const plain = line.replace(RX.email, " ").replace(/\bhttps?:\/\/\S+|\bwww\.\S+|\b[\w-]+\.(?:com|net|org|us|co|io|biz|info|gov|edu)\b/gi, " ");
+      for (const m of plain.matchAll(/(?<![\p{L}'’])\p{Ll}[\p{Ll}'’]{2,}(?!\p{L})/gu)) everyday.add(m[0].replace(/['’]s$/, ""));
+    }
+    return everyday;
   }
 
   /** The name words of a line that reads as a person's name, judged on evidence. One word at
@@ -493,6 +556,8 @@ const PDFSwapPII = (() => {
   function personPhrase(text, ev, strict) {
     // "Owner: Marisol Quill" is the name after the label
     let t = text.replace(/\s+/g, " ").trim().replace(/^[^:]{1,40}:\s*/, "").replace(HONORIFIC, "");
+    // what follows the name is not part of it: a role ("..., President") or a note in brackets
+    t = t.replace(/\s*\([^()]*\)\s*$/, "").replace(ROLE_AFTER, "");
     for (let prev = ""; prev !== t;) { prev = t; t = t.replace(CREDENTIAL, ""); }
     if (!t || INSTITUTION.test(t) || new RegExp(BUSINESS.source).test(t + " ")) return null;
     for (const w of t.match(WORDS) || []) if (/^\p{Ll}/u.test(w) && !PARTICLES.has(w) && w !== "and") return null;
@@ -537,6 +602,56 @@ const PDFSwapPII = (() => {
     }
     return out;
   }
+  /** A person written alone on a line or in a table cell, with no label: a first name on the
+   * first-name tables and a surname on the surname tables, neither one a common English word nor
+   * a word this folder writes in small letters, at most an initial between them, and nothing
+   * after but a role or a note in brackets ("Delphine Achterberg (Tax Intern)", "Corwin
+   * Halvorsby, President"). Both words have to be names for the line to be a person. */
+  function lonePerson(text, ev) {
+    const t = text.replace(/\s+/g, " ").trim().replace(/\s*\([^()]*\)\s*$/, "").replace(ROLE_AFTER, "").replace(/[,;:]+$/, "");
+    const m = /^(\p{Lu}[\p{L}'’]+)\s+(?:(\p{Lu})\.?\s+)?(\p{Lu}[\p{L}'’]+)$/u.exec(t);
+    if (!m) return null;
+    const named = (w, set) => {
+      const l = w.toLowerCase();
+      return set.has(l) && isNameWord(w) && !ALSO_A_WORD.has(l) && !ev.everyday.has(l);
+    };
+    if (!named(m[1], FIRST_SET) || !named(m[3], LAST_SET)) return null;
+    return [{ t: m[1], role: "first" }].concat(m[2] ? [{ t: m[2], role: "middle" }] : [], [{ t: m[3], role: "last" }]);
+  }
+  /** A business's own name, from the words before its legal form (`lead`, as BUSINESS matched
+   * it), or null. The name starts after the last full stop ("Transfer. The Company" is a
+   * sentence and a defined term) and after the words that only describe the document or the
+   * kind of company ("OPERATING AGREEMENT OF", "Limited Liability", "Designated Activity"): the
+   * first word that names it is one the folder never writes as an everyday word. A pointing word
+   * right before the form ("the Company", "PER LLC", "Because Company") makes it no business at
+   * all. Returns the phrase as printed and its own words, the first of them its lead. */
+  const LEGAL_FORM_WORDS = new Set(("limited liability partnership professional designated activity public benefit statutory " +
+    "series single multi member members domestic foreign nonprofit non profit mutual cooperative close closely held " +
+    "operating agreement articles certificate formation organization amendment amended restated resolution resolutions " +
+    "consent bylaws charter registered agent filing filings annual report").split(" "));
+  function businessPhrase(lead, ev) {
+    const toks = [...lead.matchAll(/\S+/g)].map((m) => ({ w: m[0], at: m.index }));
+    // a sentence ends at a full stop after a word that is not an initial or an abbreviation
+    let start = 0;
+    toks.forEach((t, k) => { if (/[A-Za-z]{2,}\.$/.test(t.w) && !/^(?:Co|St|Mt|Ft|Bros|Assoc|Intl|Natl|Mfg|Dr|Jr|Sr)\.$/i.test(t.w)) start = k + 1; });
+    const kept = toks.slice(start);
+    if (!kept.length) return null;
+    const bare = (w) => w.replace(/[^A-Za-z0-9'’&+-]/g, "");
+    const lo = (w) => bare(w).toLowerCase();
+    if (FUNCTION_WORDS.has(lo(kept[kept.length - 1].w))) return null;
+    const descriptive = (w) => { const l = lo(w); return !l || FUNCTION_WORDS.has(l) || GENERIC_BUSINESS.has(l) || LEGAL_FORM_WORDS.has(l) || NOT_NAME.has(l) || ev.everyday.has(l) || /^[&+]$/.test(l); };
+    let first = 0;
+    while (first < kept.length && descriptive(kept[first].w)) first++;
+    if (first === kept.length) return null;
+    const words = kept.slice(first);
+    const own = [];
+    for (const t of words) for (const w of t.w.match(/[A-Za-z][A-Za-z0-9'’]*/g) || []) {
+      if (w.length > 1 && /^[A-Z]/.test(w) && !GENERIC_BUSINESS.has(w.toLowerCase()) && !LEGAL_FORM_WORDS.has(w.toLowerCase())
+        && !NOT_NAME.has(stem(w)) && !LABEL_WORDS.has(stem(w)) && !(w.length === 2 && STATES.has(w))) own.push(w);
+    }
+    if (!own.length) return null;
+    return { at: words[0].at, own: own.map((t, k) => ({ t, role: "business", lead: k === 0 && !ev.everyday.has(t.toLowerCase()) })) };
+  }
   /** A business named on a payer's or employer's line, without LLC or Inc: the line after
    * "Employer's name, address" (or a payer's, filer's, lender's), or the rest of "Employer: ...",
    * up to its first comma. Not a bank, a school or an agency (they name no one), never a line with
@@ -556,13 +671,8 @@ const PDFSwapPII = (() => {
   /** What a folder's own text says about its words: which are everyday words (written in
    * lowercase somewhere), and so which are evidence of a name. */
   function evidence(profiles, clientFolders) {
-    const everyday = new Set(), folder = new Set(), family = new Set();
-    for (const prof of profiles) for (const block of prof.blocks) for (const line of block.lines) {
-      // a web address in small letters ("acmeplumbing.com") is a name written small, not an everyday word
-      const plain = line.replace(RX.email, " ").replace(/\bhttps?:\/\/\S+|\bwww\.\S+|\b[\w-]+\.(?:com|net|org|us|co|io|biz|info|gov|edu)\b/gi, " ");
-      for (const m of plain.matchAll(/(?<![\p{L}'’])\p{Ll}[\p{Ll}'’]{2,}(?!\p{L})/gu)) everyday.add(m[0].replace(/['’]s$/, ""));
-    }
-    for (const { name } of clientFolders) for (const { t, role } of folderName(name) || []) { folder.add(t.toLowerCase()); if (role === "last") family.add(t.toLowerCase()); }
+    const everyday = everydayWords(profiles), folder = new Set(), family = new Set();
+    for (const { name } of clientFolders) for (const { t, role } of folderName(name, everyday) || []) { folder.add(t.toLowerCase()); if (role === "last") family.add(t.toLowerCase()); }
     const known = (w) => { const l = w.toLowerCase(); return folder.has(l) || (inLists(w) && !ALSO_A_WORD.has(l) && !everyday.has(l)); };
     const plausible = (w) => {
       const l = w.toLowerCase(), upper = w === w.toUpperCase();
@@ -687,6 +797,9 @@ const PDFSwapPII = (() => {
   function detect(profiles, { clientFolders = [] } = {}) {
     const items = new Map(), phrases = new Map(), nameLines = new Set();
     const ev = evidence(profiles, clientFolders);
+    // a folder named for a task, whose words this folder's own text writes as everyday words, is
+    // not a client, whatever the level it sits on
+    clientFolders = clientFolders.filter(({ name }) => folderName(name, ev.everyday));
     const addPhrase = (text, toks, file, source, lineKey, kind = "name") => {
       if (lineKey) nameLines.add(lineKey);
       // a name starts and ends with a letter or a figure (an initial may keep its full stop): what
@@ -723,7 +836,7 @@ const PDFSwapPII = (() => {
       }
     };
     for (const { name, files } of clientFolders) {
-      const toks = folderName(name);
+      const toks = folderName(name, ev.everyday);
       if (toks) for (const f of files) addPhrase(name, toks, f, "client folder name", null);
     }
     profiles.forEach((prof, pi) => {
@@ -731,6 +844,10 @@ const PDFSwapPII = (() => {
       prof.blocks.forEach((block, bi) => {
         block.lines.forEach((line, li) => {
           const lineKey = pi + ":" + bi + ":" + li;
+          // a table row or a line with emphasis marks ("| Board | Id | Items |", "**Corwin
+          // Halvorsby**, President | **Delphine Achterberg**") is read cell by cell, so one cell's
+          // words are never taken for part of the next one's name
+          const cells = /\||\*\*|__/.test(line) ? line.split(/\s*(?:\||\*\*|__)\s*/).filter((c) => /\p{L}/u.test(c)) : [line];
           detectInText(items, line, file, block.where, block.lines.slice(Math.max(0, li - 3), li).join(" "), block.lines[li - 1], !!block.idCard);
           // an ID card's name lines, numbered as the card standard numbers them: "1" the family
           // name, "2" the given names (with "LN" and "FN" the way some states print them)
@@ -758,7 +875,7 @@ const PDFSwapPII = (() => {
           // a first name written beside the family's surname anywhere in a sentence ("we have
           // Juniper Halvorsen and Oskar Halvorsen as dependents"): the folder says which word is
           // the surname, so the word before it is a first name, and a letter between them an initial
-          for (const fam of familyNames(line, ev)) addPhrase(fam.text, fam.toks, file, "a name beside the family's surname", lineKey);
+          for (const seg of cells) for (const fam of familyNames(seg, ev)) addPhrase(fam.text, fam.toks, file, "a name beside the family's surname", lineKey);
           // an employer or payer named without LLC or Inc: on the line after "Employer's name",
           // or after "Employer:"; up to the first comma, so its address stays an address
           const payer = payerLine(line, block.lines[li - 1]);
@@ -774,10 +891,15 @@ const PDFSwapPII = (() => {
           }
           // a short line of names holding a word of a client folder's name: a dependent beside the
           // family name, a former surname beside the first name
-          const ws = line.match(WORDS) || [];
-          if (ws.length <= 6 && ws.some((w) => ev.folder.has(w.toLowerCase()))) {
-            const toks = personPhrase(line, ev, false);
-            if (toks) addPhrase(line, toks, file, "a line with the client's name", lineKey);
+          for (const seg of cells) {
+            const lone = lonePerson(seg, ev);
+            if (lone) addPhrase(seg, lone, file, "a name on a line of its own", lineKey);
+          }
+          for (const seg of cells) {
+            const ws = seg.match(WORDS) || [];
+            if (ws.length > 6 || !ws.some((w) => ev.folder.has(w.toLowerCase()))) continue;
+            const toks = personPhrase(seg, ev, false);
+            if (toks) addPhrase(seg, toks, file, "a line with the client's name", lineKey);
           }
           if (ADDRESS_LINE.test(line)) {
             for (let k = li - 1; k >= Math.max(0, li - 3); k--) {
@@ -794,12 +916,10 @@ const PDFSwapPII = (() => {
           }
           // a business: its own words before LLC, Inc and the like; what kind of business it is
           // ("Consulting", "Services") and its legal form stay as printed
-          for (const bm of line.matchAll(BUSINESS)) {
-            const phrase = bm[0].trim();
-            if (INSTITUTION.test(phrase)) continue;
-            const own = (bm[1].match(/[A-Za-z][A-Za-z0-9'’]*/g) || []).filter((w) => w.length > 1 && /^[A-Z]/.test(w)
-              && !GENERIC_BUSINESS.has(w.toLowerCase()) && !NOT_NAME.has(stem(w)) && !LABEL_WORDS.has(stem(w)) && !(w.length === 2 && STATES.has(w)));
-            if (own.length) addPhrase(phrase, own.map((t, k) => ({ t, role: "business", lead: k === 0 })), file, "business name", lineKey, "business");
+          for (const seg of cells) for (const bm of seg.matchAll(BUSINESS)) {
+            if (INSTITUTION.test(bm[0])) continue;
+            const biz = businessPhrase(bm[1], ev);
+            if (biz) addPhrase(bm[0].slice(biz.at).trim(), biz.own, file, "business name", lineKey, "business");
           }
         });
       });
@@ -877,7 +997,7 @@ const PDFSwapPII = (() => {
         if (it) (it.domains = it.domains || new Set()).add(m[2].toLowerCase());
       }
     })));
-    return { items, phrases };
+    return { items, phrases, clients: clientFolders };
   }
 
   // ---------------------------------------------------------------- the forms a value is printed in
@@ -925,16 +1045,28 @@ const PDFSwapPII = (() => {
 
   /** Where each item is printed, as (font, form): what a stand-in has to be written in. A form
    * value, a text file or a file name has no font, so anything fits there. */
-  function attachContexts(items, profiles) {
+  /** Where each value is printed, and in which fonts (for `fit`), and how many times it will be
+   * swapped: a form swapped only inside names ("Survey" of "Thornbury Survey Group", an initial)
+   * counts where one of `phrases` holds it, not every time the word is printed. */
+  function attachContexts(items, profiles, phrases = null) {
     const rows = [];
     for (const it of items.values()) {
       it.ctx = new Map(); it.count = 0;
       for (const f of formsFor(it, it.display).keys()) rows.push({ id: rows.length, find: f, replace: f, item: it });
     }
     const prepared = E().prepareRows(rows);
+    const only = new Map(); // a form swapped only inside names -> its item
+    for (const it of items.values()) if (it.phraseOnly) for (const f of it.phraseOnly) only.set(f, it);
+    const inside = new Map(); // phrase -> the items it holds a form of that is swapped only there
+    if (phrases && only.size) for (const [text] of phrases) for (const variant of new Set([text, text.toUpperCase()])) {
+      const own = (variant.match(WORDS) || []).filter((w) => only.has(w)).map((w) => only.get(w));
+      if (own.length) inside.set(variant, own);
+    }
+    const insidePrepared = inside.size ? E().prepareRows([...inside.keys()].map((find, id) => ({ id, find, replace: find }))) : null;
     for (const prof of profiles) for (const part of prof.parts) {
+      if (insidePrepared) for (const [, , row] of E().findMatches(part.text, insidePrepared)) for (const it of inside.get(row.find)) it.count++;
       for (const [s, e, row] of E().findMatches(part.text, prepared)) {
-        row.item.count++;
+        if (!phrases || !row.item.phraseOnly || !row.item.phraseOnly.has(row.find)) row.item.count++;
         const seen = new Set();
         for (let j = s; j < e; j++) {
           const fi = fontAt(part.runs, j);
@@ -1032,7 +1164,16 @@ const PDFSwapPII = (() => {
     for (let t = 0; t < 200; t++) { const p = pseudo(title(w)); if (p.toLowerCase() !== w.toLowerCase() && !used.has(p.toUpperCase())) made.push(p); }
     const m = chooseScored(it, made);
     if (m && (m[0] <= FITS || !closest || m[0] < closest[0])) return m[1];
-    return closest ? closest[1] : null;
+    if (closest) return closest[1];
+    // a font that carries only the letters it prints (a subset font, "Taxably" in its own
+    // letterhead) can still write the word's own letters in another order
+    const own = [];
+    for (let t = 0; t < 200; t++) {
+      const p = copyCase(w, title(shuffled(w.split("")).join("")));
+      if (p.toLowerCase() !== w.toLowerCase() && !used.has(p.toUpperCase())) own.push(p);
+    }
+    const o = chooseScored(it, own);
+    return o ? o[1] : null;
   }
   function nameFor(it, used) {
     if (it.display.length === 1) {
@@ -1423,7 +1564,7 @@ const PDFSwapPII = (() => {
     }).join("/");
   }
 
-  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, lists: { FIRST, LAST, STREET } };
+  return { profile, textProfile, everydayWords, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, lists: { FIRST, LAST, STREET } };
 })();
 globalThis.PDFSwapPII = PDFSwapPII;
 if (typeof module !== "undefined") module.exports = PDFSwapPII;

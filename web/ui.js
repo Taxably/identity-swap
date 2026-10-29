@@ -236,7 +236,11 @@
     const dice = it.kind === "custom" ? el("button", { type: "button", class: "link", onclick: () => { S.custom = S.custom.filter((c) => c !== it); renderReview(); renderRun(); } }, "Remove")
       : el("button", { type: "button", class: "link", title: "A new stand-in", "aria-label": "A new stand-in for " + it.display, onclick: () => { PII.regenerate(S.items, it); renderReview(); renderRun(); } }, "New");
     const seen = it.kind === "custom" ? it.count + " times" : plural(it.count, "time") + (it.files.size ? ", " + plural(it.files.size, "file") : "");
-    const ctx = it.kind === "name" || it.kind === "business" ? (it.mode && it.mode !== "everywhere" ? "Swapped inside names only for some capitals: it is also an everyday word here. " : "") + (it.context ? "In: " + it.context : "")
+    const inside = !it.mode || it.mode === "everywhere" ? ""
+      : it.initial || it.display.length === 1 ? "An initial: swapped only inside the names it was found in. "
+      : it.kind === "business" && !it.lead ? "Swapped only inside the business's name. "
+      : "Swapped inside names only" + (it.mode === "inside names only" ? "" : " for some capitals") + ": it is also an everyday word here. ";
+    const ctx = it.kind === "name" || it.kind === "business" ? inside + (it.context ? "In: " + it.context : "")
       : it.kind === "state" ? "Kept unless ticked. Ticked, its addresses move to this state (cities and ZIPs too); the state's own forms keep its name."
       : it.kind === "city" ? (it.kept ? "Kept: no real city in " + it.state + " fits where it is printed, so the address stays a real place." : "A real city in " + (it.state || "the same state") + ", with a real ZIP of its own." + (it.risky ? " Also an everyday word or a name here, so only swapped beside its state code." : ""))
       : it.kind === "zip" && it.kept ? "Kept: its city is kept and has no other ZIP of its own."
@@ -293,7 +297,7 @@
         it.checked = true; it.roles.add(role);
       }
       S.phrases.set(name.value.trim(), { files: new Set(), source: "added by you" });
-      PII.attachContexts(S.items, S.profiles); PII.generate(S.items);
+      PII.attachContexts(S.items, S.profiles, S.phrases); PII.generate(S.items);
       nameMsg.textContent = added ? "Added " + plural(added, "name") + "." : "Already in the list; it is checked.";
       name.value = ""; S.tab = "name"; renderReview(); renderRun();
     } }, "Add name");

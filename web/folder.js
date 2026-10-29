@@ -44,13 +44,14 @@ const PDFSwapFolder = (() => {
   }
 
   /** The folders that are the clients: the level under the chosen folder whose names read most
-   * like people's names ("Last, First", "First Last"). */
-  function clientFolders(paths) {
+   * like people's names ("Last, First", "First Last"). `everyday` is the words the folder's own
+   * text writes in small letters, so a folder named for a task is not taken for a client. */
+  function clientFolders(paths, everyday = null) {
     let best = null;
     // the chosen folder itself is the client when its own name is one ("Last, First M") and the
     // folders inside it are not
     const root = paths.length ? paths[0].split("/")[0] : "";
-    if (root && PII().folderName(root)) best = { depth: 0, share: 0.5, groups: [{ name: root, files: paths.filter((p) => p.split("/")[0] === root) }] };
+    if (root && PII().folderName(root, everyday)) best = { depth: 0, share: 0.5, groups: [{ name: root, files: paths.filter((p) => p.split("/")[0] === root) }] };
     for (const depth of [1, 2, 3]) {
       const groups = new Map();
       for (const p of paths) {
@@ -60,7 +61,7 @@ const PDFSwapFolder = (() => {
         if (!groups.has(key)) groups.set(key, { name: segs[depth], files: [] });
         groups.get(key).files.push(p);
       }
-      const named = [...groups.values()].filter((g) => PII().folderName(g.name));
+      const named = [...groups.values()].filter((g) => PII().folderName(g.name, everyday));
       const share = groups.size ? named.length / groups.size : 0;
       if (named.length && (!best || share > best.share)) best = { depth, share, groups: named };
     }
@@ -189,9 +190,8 @@ const PDFSwapFolder = (() => {
 
   /** Finding and choosing, over every file at once, so one value gets one stand-in. */
   function plan(profiles, paths) {
-    const clients = clientFolders(paths);
-    const { items, phrases } = PII().detect(profiles, { clientFolders: clients });
-    PII().attachContexts(items, profiles);
+    const { items, phrases, clients } = PII().detect(profiles, { clientFolders: clientFolders(paths, PII().everydayWords(profiles)) });
+    PII().attachContexts(items, profiles, phrases);
     PII().generate(items);
     return { items, phrases, clients };
   }
