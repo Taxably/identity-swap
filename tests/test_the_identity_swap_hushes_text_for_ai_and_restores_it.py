@@ -21,6 +21,11 @@ held:
     a hyphenated or Irish surname, a greeting's first name, a birth date after "born" and a
     business by its legal ending are hidden; a city and a state code are not taken for names
 
+  * a firm's client list (a CSV export) makes every client a known person, however rare the name:
+    without it "Kofi Ostfeather" is missed, with it he is [PERSON-1]
+  * a card number is hidden only when its check digit is right (Luhn); a bank's routing number,
+    which names a bank and no one's account, is left as written
+
 Skipped where node is absent.
 """
 
@@ -112,3 +117,13 @@ def test_greeting_names_and_businesses_are_hidden_but_not_places(probe):
         assert s not in text, s
     assert ", CO [ZIP-" in text  # a state code is not a name
     assert "[PERSON-" in text and "[BUSINESS-1]" in text
+
+
+def test_a_client_list_makes_every_client_a_known_person(probe):
+    assert ["Kofi", "Ostfeather"] in probe["clients"] and ["Dev", "Vaskberg"] in probe["clients"] and ["", "Raman-Iyer"] in probe["clients"]
+    assert "Kofi Ostfeather" in probe["rareWithout"]
+    assert probe["rareWith"] == "Can you look at the 1099 for [PERSON-1]? [PERSON-2] called. Mrs. [PERSON-3] sent the K-1."
+
+
+def test_card_numbers_are_checked_and_routing_numbers_kept(probe):
+    assert probe["cards"] == "Paid with [CARD-1]; the other card 4111-1111-1111-1112 was declined. Routing 021000021."

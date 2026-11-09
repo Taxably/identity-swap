@@ -15,5 +15,9 @@
     "zip": 1
   },
   "wrongRate": 0,
-  "keepBroken": 0
+  "keepBroken": 0,
+  "withClients": {
+    "person": 1,
+    "wrongRate": 0
+  }
 }

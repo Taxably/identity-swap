@@ -153,12 +153,13 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
   <section class="card">
     <div class="step"><div class="num">1</div><div><h2>Paste what you want to ask about</h2><p class="sub">A client email, a note, a document's text. Names, SSNs, EINs, addresses, phones, emails, account and ID numbers and birth dates become tags such as [PERSON-1] and [SSN-1]. The same value keeps the same tag in every paste.</p></div></div>
     <textarea id="hushIn" aria-label="Text to swap" placeholder="Paste text here" spellcheck="false"></textarea>
-    <div class="row" style="margin-top:10px"><label class="small" for="hushFile">Attach files to swap the same way (PDF, Word, Excel, PowerPoint, text):</label><input id="hushFile" type="file" multiple accept=".pdf,.docx,.docm,.dotx,.xlsx,.xlsm,.xltx,.pptx,.pptm,.potx,.ppsx,.txt,.csv,.eml,.md,application/pdf,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
+    <div class="row" style="margin-top:10px"><label class="small" for="hushFile">Attach files to swap the same way (PDF, Word, Excel, PowerPoint, text, scans and photos):</label><input id="hushFile" type="file" multiple accept=".pdf,.docx,.docm,.dotx,.xlsx,.xlsm,.xltx,.pptx,.pptm,.potx,.ppsx,.txt,.csv,.eml,.md,.jpg,.jpeg,.png,.webp,.tif,.tiff,.heic,.bmp,.gif,application/pdf,text/plain,text/csv,image/*"><span id="hushFileMsg" class="small"></span></div>
     <div id="attList"></div>
     <details id="hushListBox" style="margin-top:12px">
       <summary>Words to always hide</summary>
       <p class="small">One per line: a client's name or nickname, an employer, a street. Each is hidden wherever it appears as a whole word, in any capitals. The list stays in this tab, and goes into a saved key if you save one.</p>
       <textarea id="hushList" class="mono" aria-label="Words to always hide" style="min-height:80px" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:10px"><label class="small" for="clientList">Import the firm's client list (a CSV or text export from ProConnect, TaxDome, Canopy or a spreadsheet), so every client is known by name, however rare:</label><input id="clientList" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain"><span id="clientMsg" class="small"></span></div>
     </details>
   </section>
 
@@ -181,6 +182,8 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
         <div class="row" style="margin-top:8px"><button id="restoreCopy" type="button" class="teal">Copy with real details</button><span id="restoreCopyMsg" class="small"></span></div></div>
     </div>
     <div id="restoreMsg"></div>
+    <div class="row" style="margin-top:14px"><label class="small" for="restoreFile">Or restore files the AI gave back (Word, Excel, PowerPoint, PDF, text):</label><input id="restoreFile" type="file" multiple accept=".pdf,.docx,.docm,.xlsx,.xlsm,.pptx,.pptm,.txt,.csv,.md,application/pdf,text/plain,text/csv"></div>
+    <div id="restoreFiles"></div>
   </section>
 
   <section class="card">

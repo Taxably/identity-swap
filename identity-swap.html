@@ -153,12 +153,13 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
   <section class="card">
     <div class="step"><div class="num">1</div><div><h2>Paste what you want to ask about</h2><p class="sub">A client email, a note, a document's text. Names, SSNs, EINs, addresses, phones, emails, account and ID numbers and birth dates become tags such as [PERSON-1] and [SSN-1]. The same value keeps the same tag in every paste.</p></div></div>
     <textarea id="hushIn" aria-label="Text to swap" placeholder="Paste text here" spellcheck="false"></textarea>
-    <div class="row" style="margin-top:10px"><label class="small" for="hushFile">Attach files to swap the same way (PDF, Word, Excel, PowerPoint, text):</label><input id="hushFile" type="file" multiple accept=".pdf,.docx,.docm,.dotx,.xlsx,.xlsm,.xltx,.pptx,.pptm,.potx,.ppsx,.txt,.csv,.eml,.md,application/pdf,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
+    <div class="row" style="margin-top:10px"><label class="small" for="hushFile">Attach files to swap the same way (PDF, Word, Excel, PowerPoint, text, scans and photos):</label><input id="hushFile" type="file" multiple accept=".pdf,.docx,.docm,.dotx,.xlsx,.xlsm,.xltx,.pptx,.pptm,.potx,.ppsx,.txt,.csv,.eml,.md,.jpg,.jpeg,.png,.webp,.tif,.tiff,.heic,.bmp,.gif,application/pdf,text/plain,text/csv,image/*"><span id="hushFileMsg" class="small"></span></div>
     <div id="attList"></div>
     <details id="hushListBox" style="margin-top:12px">
       <summary>Words to always hide</summary>
       <p class="small">One per line: a client's name or nickname, an employer, a street. Each is hidden wherever it appears as a whole word, in any capitals. The list stays in this tab, and goes into a saved key if you save one.</p>
       <textarea id="hushList" class="mono" aria-label="Words to always hide" style="min-height:80px" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:10px"><label class="small" for="clientList">Import the firm's client list (a CSV or text export from ProConnect, TaxDome, Canopy or a spreadsheet), so every client is known by name, however rare:</label><input id="clientList" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain"><span id="clientMsg" class="small"></span></div>
     </details>
   </section>
 
@@ -181,6 +182,8 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
         <div class="row" style="margin-top:8px"><button id="restoreCopy" type="button" class="teal">Copy with real details</button><span id="restoreCopyMsg" class="small"></span></div></div>
     </div>
     <div id="restoreMsg"></div>
+    <div class="row" style="margin-top:14px"><label class="small" for="restoreFile">Or restore files the AI gave back (Word, Excel, PowerPoint, PDF, text):</label><input id="restoreFile" type="file" multiple accept=".pdf,.docx,.docm,.xlsx,.xlsm,.pptx,.pptm,.txt,.csv,.md,application/pdf,text/plain,text/csv"></div>
+    <div id="restoreFiles"></div>
   </section>
 
   <section class="card">
@@ -9699,6 +9702,10 @@ globalThis.PDFSwapCheck = PDFSwapCheck;
       render: (bytes, dpi, want, each, most) => OCR.renderPdf((b) => pdfjsLib.getDocument({ data: b.slice(), isEvalSupported: false, useSystemFonts: true, verbosity: 0 }).promise, bytes, dpi, want, each, most) });
   }
 
+  // the same reader for the text swap's attachments: started the first time a scan or photo is
+  // attached, null where this browser cannot run it
+  globalThis.PDFSwapScanReader = async () => { await ocrReader(); return ocrService(); };
+
   // ------------------------------------------------------------------ step 1: the folder
   // Chrome and Edge open the folder itself, which lists every folder in it, an empty one too, so
   // the copy can hold the same folders; another browser's file chooser lists only files
@@ -10156,9 +10163,9 @@ const PDFSwapHush = (() => {
   // which tag each kind of value takes; a state alone is left as it is (it identifies nobody and
   // a tax answer often turns on it)
   const TAG = { name: "PERSON", business: "BUSINESS", ssn: "SSN", ssn4: "SSN", ein: "EIN", phone: "PHONE", email: "EMAIL", street: "ADDRESS", unit: "UNIT",
-    city: "CITY", zip: "ZIP", zip4: "ZIP", acct: "ACCOUNT", idnum: "ID", dob: "DOB", iddate: "DATE", custom: "HIDDEN" };
+    city: "CITY", zip: "ZIP", zip4: "ZIP", acct: "ACCOUNT", card: "CARD", idnum: "ID", dob: "DOB", iddate: "DATE", custom: "HIDDEN" };
   // kinds whose digits are the value, however they are spaced or punctuated
-  const DIGITS = new Set(["ssn", "ein", "phone", "acct", "idnum"]);
+  const DIGITS = new Set(["ssn", "ein", "phone", "acct", "card", "idnum"]);
   // kinds that are numbers, so no letter glued to them ("AZ85711") may hide them
   const NUMBERS = new Set(["zip", "zip4", "dob", "iddate"]);
   // a word that opens a sentence or a greeting is never part of a name run
@@ -10171,6 +10178,58 @@ const PDFSwapHush = (() => {
   const digitsOf = (v) => String(v).replace(/\D/g, "");
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const wordy = (s) => /^[\p{L}\p{N}]/u.test(s) || /[\p{L}\p{N}]$/u.test(s);
+
+  /** Whether a run of digits is a card number: 13 to 19 digits whose last is the Luhn check digit. */
+  function luhn(d) {
+    if (d.length < 13 || d.length > 19 || /^(\d)\1+$/.test(d)) return false;
+    let sum = 0;
+    for (let i = 0; i < d.length; i++) { let n = +d[d.length - 1 - i]; if (i % 2) { n *= 2; if (n > 9) n -= 9; } sum += n; }
+    return sum % 10 === 0;
+  }
+
+  /** A firm's client list (a CSV or text export from ProConnect, TaxDome, Canopy or a spreadsheet) as
+   * the people it names: [first, last] pairs ([""', last] for a surname alone), which `find` then
+   * treats as names it knows, so a client gets a person's tag wherever they turn up. Columns are
+   * found by their headers (Name, Client, Taxpayer, Spouse, First, Last); a list with no headers is
+   * read line by line. */
+  function clientList(text) {
+    const rows = String(text).split(/\r?\n/).filter((l) => l.trim()).map(splitCsv);
+    if (!rows.length) return [];
+    const head = rows[0].map((h) => h.trim().toLowerCase());
+    const col = (re) => head.findIndex((h) => re.test(h));
+    const fi = col(/^(first|first name|taxpayer first|given)/), la = col(/^(last|last name|surname|family|taxpayer last)/);
+    const named = head.map((h, i) => (/(^|\b)(name|client|taxpayer|spouse|dependent|contact)(\b|$)/.test(h) && i !== fi && i !== la ? i : -1)).filter((i) => i >= 0);
+    const hasHead = fi >= 0 || la >= 0 || named.length > 0;
+    const people = [];
+    for (const r of hasHead ? rows.slice(1) : rows) {
+      if (fi >= 0 && la >= 0 && r[fi] && r[la]) people.push([r[fi].trim(), r[la].trim()]);
+      for (const i of hasHead ? named : [0]) {
+        const v = (r[i] || "").trim();
+        if (!v || /\d/.test(v)) continue;
+        // "Last, First M", or "First M Last"; "&" or "and" joins a couple ("Marisol & Daniel Quillfeather")
+        const lf = /^([^,]+),\s*(.+)$/.exec(v);
+        const [lastPart, rest] = lf ? [lf[1].trim(), lf[2].trim()] : [v.split(/\s+/).at(-1), v.split(/\s+/).slice(0, -1).join(" ")];
+        const firsts = rest.split(/\s*(?:&|\band\b)\s*/i).filter(Boolean);
+        if (!firsts.length) people.push(["", lastPart]);
+        for (const f of firsts) people.push([f.split(/\s+/)[0], lastPart]);
+      }
+    }
+    const seen = new Set();
+    return people.filter(([f, l]) => (!f || /^\p{L}/u.test(f)) && /^\p{L}/u.test(l) && l.length >= 2 && !seen.has(f + "|" + l) && seen.add(f + "|" + l));
+  }
+  function splitCsv(line) {
+    const out = [];
+    let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === "," || ch === "\t" || ch === ";") { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out;
+  }
 
   /** An empty key: which tag stands for which value. */
   function newKey() { return { entries: [], counters: {} }; }
@@ -10324,7 +10383,7 @@ const PDFSwapHush = (() => {
   /** What to hide in `text`: one entry per value, each with its tag (reusing the key's tag for a
    * value it already holds) and every form it is written in. Nothing is added to the key until
    * the text is hushed. */
-  function find(text, { key = newKey(), alwaysHide = [] } = {}) {
+  function find(text, { key = newKey(), alwaysHide = [], clients = [] } = {}) {
     const P = PII();
     const { items } = P.detect([P.textProfile(text, "pasted.txt")]);
     const draft = { entries: key.entries.slice(), counters: { ...key.counters } };
@@ -10348,13 +10407,15 @@ const PDFSwapHush = (() => {
 
     // people: the full name first, then each of its words where it stands alone
     const found = new Set([...items.values()].filter((i) => i.kind === "name" && i.checked).map((i) => i.display.toUpperCase()));
+    // the firm's own clients, from its client list, are people whatever the lists say of their names
+    for (const [f, l] of clients) for (const w of [f, ...String(l).split(/[\s-]+/), l]) if (w && w.length > 1) found.add(w.toUpperCase());
     // a person hidden in an earlier paste is known in this one too
     for (const e of key.entries) if (e.kind === "name") for (const w of String(e.value).split(/\s+/)) if (!isInitial(w)) found.add(bare(w).toUpperCase());
     const people = [], singles = [];
     const other = new Set([...items.values()].filter((i) => i.kind === "city" || i.kind === "state" || i.kind === "business").map((i) => i.display.toUpperCase()));
     for (const run of personRuns(text, found, other)) {
       // one word alone ("Hi Sarah,", "the Quillfeathers") is a name word, found below, not a person
-      if (!run.last) { if (!found.has(norm(run.first))) singles.push(run.first); continue; }
+      if (!run.last) { singles.push(run.first); continue; }
       let id = norm(run.first) + "|" + norm(run.last || "");
       // "Quillfeather Marisol", as a file or folder name often puts it, is "Marisol Quillfeather"
       const flipped = norm(run.last) + "|" + norm(run.first);
@@ -10388,6 +10449,8 @@ const PDFSwapHush = (() => {
       if (it.kind !== "name" || !it.checked || it.display.length < 2 || plan.some((p) => norm(p.value) === norm(it.display))) continue;
       take("name", it.display, [...(it.forms ? it.forms.keys() : [])], "name");
     }
+    // a payment card number, 13 to 19 digits in groups, that passes the card networks' check digit (Luhn)
+    for (const m of text.matchAll(/(?<![\d-])(\d{4}(?:[ -]?\d{3,4}){2,4})(?![\d-])/g)) if (luhn(digitsOf(m[1]))) take("card", m[1], [], "card");
     // an account number after its label, with words between ("Account number (see instructions) 9923613648")
     for (const m of text.matchAll(/\b(?:account|acct)\.?\b[^\d\n]{0,40}?(\d[\d-]{5,}\d)(?!\d)/gi)) take("acct", m[1], [], "acct");
     // a birth date in any common form, after the words that say it is one
@@ -10434,23 +10497,24 @@ const PDFSwapHush = (() => {
   /** One pattern per form: whole words only (so "Ann" never hides inside "Annual"), any
    * capitals; a number of digits however it is spaced ("481-27-3306", "481 27 3306",
    * "481273306"). */
-  function patternFor(entry, form) {
+  function patternFor(entry, form, loose = false) {
     if (DIGITS.has(entry.kind) && digitsOf(form).length >= 4) {
       const d = digitsOf(form).split("");
       // a phone's area code in brackets is hidden with its brackets: "([PHONE-1]" would be odd
       return (entry.kind === "phone" ? "(?:\\(\\s?)?" : "") + "(?<!\\d)" + d.join("[\\s.\\-/()]{0,2}") + "(?!\\d)";
     }
     if (NUMBERS.has(entry.kind) && /^\d/.test(form)) return "(?<!\\d)" + esc(form).replace(/\s+/g, "\\s+") + "(?!\\d)";
-    const body = esc(form).replace(/\s+/g, "\\s+");
+    // text an OCR engine read may lose the space between words ("Marisol JQuillfeather")
+    const body = esc(form).replace(/\s+/g, loose ? "\\s*" : "\\s+");
     return (wordy(form) ? "(?<![\\p{L}\\p{N}])" : "") + body + (wordy(form) ? "(?![\\p{L}\\p{N}])" : "");
   }
-  function matcher(entries) {
+  function matcher(entries, loose = false) {
     const pairs = [];
     for (const e of entries) for (const f of e.forms) pairs.push({ e, f });
     // the longest form first, so a full name is hidden before its first name
     pairs.sort((a, b) => b.f.length - a.f.length);
     if (!pairs.length) return null;
-    return { rx: new RegExp(pairs.map((p) => "(" + patternFor(p.e, p.f) + ")").join("|"), "giu"), pairs };
+    return { rx: new RegExp(pairs.map((p) => "(" + patternFor(p.e, p.f, loose) + ")").join("|"), "giu"), pairs };
   }
 
   /** The text with every ticked entry replaced by its tag, and the key grown by those entries. */
@@ -10479,9 +10543,9 @@ const PDFSwapHush = (() => {
    * each place a ticked entry matches in the file's text, as the exact characters printed there,
    * with its tag. An engine replaces exact text, so "481 27 3306" and "481-27-3306" are each a
    * row of their own. Longest first, so a full name is replaced before its first name. */
-  function rowsFor(text, plan) {
+  function rowsFor(text, plan, { loose = false } = {}) {
     const on = plan.filter((p) => p.checked);
-    const m = matcher(on);
+    const m = matcher(on, loose);
     const rows = new Map();
     if (m) for (const hit of String(text).matchAll(m.rx)) {
       const k = hit.slice(1, 1 + m.pairs.length).findIndex((g) => g !== undefined);
@@ -10553,10 +10617,10 @@ const PDFSwapHush = (() => {
     return subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
   }
   /** The key, and the words to always hide, as a file only the passphrase opens. */
-  async function lock(key, alwaysHide, passphrase) {
+  async function lock(key, alwaysHide, passphrase, clients = []) {
     if (!passphrase || passphrase.length < 8) throw new Error("Use a passphrase of at least 8 characters.");
     const salt = globalThis.crypto.getRandomValues(new Uint8Array(16)), iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-    const plain = new TextEncoder().encode(JSON.stringify({ entries: key.entries, counters: key.counters, alwaysHide }));
+    const plain = new TextEncoder().encode(JSON.stringify({ entries: key.entries, counters: key.counters, alwaysHide, clients }));
     const data = new Uint8Array(await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv }, await derive(passphrase, salt, ITERATIONS), plain));
     return JSON.stringify({ format: FORMAT, version: 1, cipher: "AES-256-GCM", kdf: "PBKDF2-SHA-256", iterations: ITERATIONS, salt: b64(salt), iv: b64(iv), data: b64(data) });
   }
@@ -10570,10 +10634,10 @@ const PDFSwapHush = (() => {
       plain = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv) }, await derive(passphrase, unb64(f.salt), f.iterations), unb64(f.data));
     } catch (e) { throw new Error("That passphrase does not open this key."); }
     const got = JSON.parse(new TextDecoder().decode(plain));
-    return { key: { entries: got.entries || [], counters: got.counters || {} }, alwaysHide: got.alwaysHide || [] };
+    return { key: { entries: got.entries || [], counters: got.counters || {} }, alwaysHide: got.alwaysHide || [], clients: got.clients || [] };
   }
 
-  return { TAG, newKey, find, hush, rowsFor, ocrText, leaks, restore, renameTag, lock, unlock, personRuns };
+  return { TAG, newKey, find, hush, rowsFor, ocrText, clientList, luhn, leaks, restore, renameTag, lock, unlock, personRuns };
 })();
 globalThis.PDFSwapHush = PDFSwapHush;
 if (typeof module !== "undefined") module.exports = PDFSwapHush;
@@ -10600,19 +10664,19 @@ const PDFSwapAttach = (() => {
   const F = () => globalThis.PDFSwapFolder, H = () => globalThis.PDFSwapHush, E = () => globalThis.PDFSwapEngine, P = () => globalThis.PDFSwapPII;
 
   /** What a file is and what it says. `problem` is set when it cannot be swapped here. */
-  async function read(name, bytes) {
+  async function read(name, bytes, { ocr = null } = {}) {
     const kind = F().kindOf(name);
-    const att = { name, bytes, kind, text: "", pages: [], problem: null, status: null };
-    if (!/^(pdf|office|text)$/.test(kind)) {
-      att.problem = kind === "picture" ? "a picture: photos and scans are read by the folder swap, which paints realistic stand-ins over them" : "not a kind of file this can change (PDF, Word, Excel, PowerPoint or a text file)";
+    const att = { name, bytes, kind, text: "", pages: [], problem: null, status: null, ocr };
+    if (!/^(pdf|office|text)$/.test(kind) && !(kind === "picture" && ocr && ocr.canRead(name))) {
+      att.problem = kind === "picture" ? "a picture, and the reader for scans and photos is not available here: the folder swap in Chrome or Edge reads them" : "not a kind of file this can change (PDF, Word, Excel, PowerPoint, text, or a scan or photo)";
       return att;
     }
     const file = { path: name, size: bytes.length, read: async () => bytes };
-    const { profiles, status } = await F().analyze([file], {});
+    const { profiles, status } = await F().analyze([file], { ocr });
     att.status = status;
     const st = status.get(name) || {};
     if (st.state !== "ok") {
-      att.problem = st.state === "scan" ? "its pages are pictures (a scan), with no text to swap; run it through the folder swap, which reads scans" : st.why || "it could not be read";
+      att.problem = st.state === "scan" ? (ocr ? "a picture with no text the reader could find" : "its pages are pictures (a scan), and the reader for scans is not available here: the folder swap in Chrome or Edge reads them") : st.why || "it could not be read";
       return att;
     }
     const byPage = new Map();
@@ -10644,31 +10708,45 @@ const PDFSwapAttach = (() => {
    * { problem } when no safe copy could be made. */
   async function swap(att, plan) {
     if (att.problem) return { problem: att.problem };
-    const rows = H().rowsFor(att.text, plan);
+    // text read from a picture (a scan, a photo, a picture on a PDF's page) may have lost spaces
+    const rows = H().rowsFor(att.text, plan, { loose: !!att.ocr && att.kind !== "office" });
     if (!rows.length) return { bytes: att.bytes, name: nameFor(att, plan), how: "nothing to swap", count: 0, notes: [] };
     let made = null;
     if (att.kind === "pdf") {
-      // the engine swaps word for word: a name of three words becomes its tag and two empty words
-      const padded = rows.map((r) => ({ ...r, replace: r.replace + " ".repeat(r.find.split(" ").length - 1) }));
+      // first in the PDF's own fonts; then, for a font that cannot draw a tag, by taking the value
+      // out and drawing its tag over the gap; only when neither can, a text PDF of its pages
+      // text is swapped word for word (a name of three words becomes its tag and two empty words);
+      // a scanned page is painted, and a tag laid across the whole value paints best there
+      const scanned = ((att.status.get(att.name) || {}).scanned || 0) > 0;
+      const padded = scanned ? rows : rows.map((r) => ({ ...r, replace: r.replace + " ".repeat(r.find.split(" ").length - 1) }));
       const inPlace = await runEngine(att, padded);
-      if (inPlace.bytes) made = { bytes: inPlace.bytes, how: "layout kept", ext: ".pdf" };
-      else made = { bytes: await textPdf(att, plan), how: "text only", ext: ".pdf", why: inPlace.why };
+      const over = inPlace.bytes ? null : await overlay(att, rows).catch((e) => ({ why: e.message }));
+      if (inPlace.bytes) made = { bytes: inPlace.bytes, how: "layout kept", ext: ".pdf", warnings: inPlace.warnings };
+      else if (over && over.bytes) made = { bytes: over.bytes, how: "layout kept", ext: ".pdf", drawn: true };
+      else made = { bytes: await textPdf(att, plan), how: "text only", ext: ".pdf", why: (over && over.why) || inPlace.why };
     } else if (att.kind === "office") {
       const got = await runEngine(att, rows);
       if (!got.bytes) return { problem: "it could not be swapped: " + got.why };
       made = { bytes: got.bytes, how: "layout kept" };
+    } else if (att.kind === "picture") {
+      // a scan or photo: each value painted over with its tag, as the folder swap paints a stand-in
+      const got = await runEngine(att, rows);
+      if (!got.bytes) return { problem: "it could not be swapped: " + got.why };
+      made = { bytes: got.bytes, how: "layout kept", ext: got.ext, warnings: got.warnings };
     } else {
       const enc = (att.status.get(att.name) || {}).enc || "utf-8";
       const text = F().decodeText(att.bytes).text;
       made = { bytes: F().encodeText(H().hush(text, plan, H().newKey()).text, enc), how: "layout kept" };
     }
     // read back: no hidden value may be left anywhere in what is offered
-    const back = await read(att.name, made.bytes);
+    const backName = made.ext ? att.name.replace(/\.[^./]+$/, made.ext) : att.name;
+    const back = await read(backName, made.bytes, { ocr: att.ocr || null });
     if (back.problem && !back.text) return { problem: "the swapped copy could not be read back to check it (" + back.problem + "), so it is not offered" };
     const left = H().leaks(back.text, plan.filter((p) => p.checked));
     const stuck = left.filter((l) => l.tag);
     if (stuck.length) return { problem: "the swapped copy still held " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ", so it is not offered" };
-    const notes = [];
+    const notes = (made.warnings || []).map((w) => "Look at: " + w);
+    if (made.drawn) notes.push("The PDF's own fonts could not draw the tags, so each value was taken out and its tag drawn in its place; the page is otherwise as it was.");
     if (made.how === "text only") notes.push("The PDF's own fonts could not show the tags in place (" + made.why + "), so this is a text PDF of its pages: the words are all there, the layout is not.");
     const still = left.filter((l) => !l.tag);
     if (still.length) notes.push("Still reads as personal: " + [...new Set(still.map((l) => l.value))].slice(0, 6).join(", ") + ". Add it to the words to always hide, or leave it if it is not.");
@@ -10679,8 +10757,122 @@ const PDFSwapAttach = (() => {
   async function runEngine(att, rows) {
     let out = null;
     const file = { path: att.name, size: att.bytes.length, read: async () => att.bytes };
-    const [r] = await F().run([file], rows, att.status, { include: () => false, write: async (_, b) => { out = b; } });
-    return r && r.result === "swapped" && out ? { bytes: out } : { why: (r && r.why) || "the engine did not write it" };
+    let ext = null;
+    const [r] = await F().run([file], rows, att.status, { include: () => false, ocr: att.ocr || null, write: async (p, b) => { out = b; ext = /\.[^./]+$/.exec(p)?.[0] || null; } });
+    return r && r.result === "swapped" && out ? { bytes: out, ext, warnings: r.warnings || [] } : { why: (r && r.why) || "the engine did not write it" };
+  }
+
+  // ---------------------------------------------------------------- restoring a file the AI gave back
+  /** A file an AI handed back, with every tag the key knows replaced by its real value: Word, Excel
+   * and PowerPoint inside their own parts, a PDF in its own fonts or with the value drawn where the
+   * tag was, a text file as text. Read back after: no tag the key knows may be left.
+   * { bytes, name, count, notes } or { problem }. */
+  async function restoreFile(att, key) {
+    if (att.problem) return { problem: att.problem };
+    const byTag = new Map(key.entries.map((e) => ["[" + e.tag + "]", e.value]));
+    const rows = [...byTag].filter(([tag]) => att.text.includes(tag)).sort((a, b) => b[0].length - a[0].length)
+      .map(([find, replace], i) => ({ id: i + 1, find, replace, label: "restore" }));
+    const restoredName = (ext) => {
+      const dot = att.name.lastIndexOf(".");
+      const stem = H().restore(dot > 0 ? att.name.slice(0, dot) : att.name, key).text.replace(/ \(swapped\)$/, "");
+      return stem + " (restored)" + (ext || (dot > 0 ? att.name.slice(dot) : ""));
+    };
+    if (!rows.length) return { problem: "no tag this key knows is in it: open the key that swapped its text first" };
+    let bytes = null, notes = [];
+    if (att.kind === "office") {
+      const got = await runEngine(att, rows);
+      if (!got.bytes) return { problem: "it could not be restored: " + got.why };
+      bytes = got.bytes;
+    } else if (att.kind === "pdf") {
+      const padded = rows.map((r) => ({ ...r, replace: r.replace.split(" ").length === r.find.split(" ").length ? r.replace : r.replace.replace(/ /g, "\u00a0") }));
+      const inPlace = await runEngine(att, padded);
+      if (inPlace.bytes) bytes = inPlace.bytes;
+      else {
+        const over = await overlay(att, rows, { fit: false }).catch((e) => ({ why: e.message }));
+        if (!over.bytes) return { problem: "it could not be restored: " + over.why };
+        bytes = over.bytes;
+        notes.push("Its fonts could not write the real values, so each tag was taken out and its value drawn in its place.");
+      }
+    } else {
+      const enc = (att.status.get(att.name) || {}).enc || "utf-8";
+      bytes = F().encodeText(H().restore(F().decodeText(att.bytes).text, key).text, enc);
+    }
+    const back = await read(att.name, bytes);
+    const still = rows.filter((r) => back.text.includes(r.find)).map((r) => r.find);
+    if (still.length) return { problem: "the restored copy still held " + still.join(", ") + ", so it is not offered" };
+    const unknown = [...new Set((att.text.match(/\[[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\]/g) || []).filter((t) => !byTag.has(t)))];
+    if (unknown.length) notes.push("This key does not know " + unknown.join(", ") + ", so " + (unknown.length === 1 ? "it is" : "they are") + " left as written.");
+    return { bytes, name: restoredName(), count: rows.length, notes };
+  }
+
+  // ---------------------------------------------------------------- tags drawn over the page
+  /** The PDF with each value taken out by the engine (taking a letter out needs no letter the font
+   * lacks, and the text after it stays where it was) and its tag drawn where the value began, on
+   * its baseline, in Helvetica, at the value's size or smaller so it fits the value's width. The
+   * engine's own checks must pass: every value out, nothing else moved. { bytes } or { why }. */
+  async function overlay(att, rows, { fit = true } = {}) {
+    const L = globalThis.PDFLib;
+    // every word of the value emptied: the tag is drawn, not written into the font's text
+    const blanks = rows.map((r) => ({ ...r, replace: r.find.split(" ").map(() => "").join(" ") }));
+    const res = await E().swap(att.bytes, blanks, { forms: true, metadata: true });
+    if (res.skipped) return { why: res.skipped };
+    const missed = res.occurrences.filter((o) => !o.replaced);
+    if (missed.length) return { why: missed.length + " of " + res.occurrences.length + " could not be taken out: " + [...new Set(missed.map((o) => o.reason))].join("; ") };
+    if (!res.output) return { why: "the engine wrote nothing" };
+    const checks = await E().selfCheck(att.bytes, res, blanks, { forms: true, metadata: true });
+    const failed = checks.filter((c) => !c.passed);
+    if (failed.length) return { why: "check failed: " + failed.map((c) => c.name + (c.detail ? " (" + c.detail + ")" : "")).join("; ") };
+    // the page's own text as it was, to measure the room after a value up to the next word on its line
+    const before = fit ? null : (await E().open(att.bytes, { forms: true })).model;
+    const roomAfter = (pageIx, g0, along, skip) => {
+      let best = Infinity;
+      for (const part of before.parts) for (const use of part.uses) {
+        if (use.page !== pageIx) continue;
+        use.geo.forEach((x, i) => {
+          if (skip.has(part.key + ":" + i) || !part.glyphs[i]) return;
+          const d = along(x.x, x.y), off = Math.abs((x.y - g0.y) * g0.ux - (x.x - g0.x) * g0.uy);
+          if (d > 0.5 && off < g0.em * 0.5 && d < best) best = d;
+        });
+      }
+      return best;
+    };
+    const doc = await L.PDFDocument.load(res.output, { updateMetadata: false });
+    const font = await doc.embedFont(L.StandardFonts.Helvetica);
+    const pages = doc.getPages();
+    const byKey = new Map(res.before.map((b) => [b.key, b]));
+    let drawn = 0;
+    for (const o of res.occurrences) {
+      if (!o.part) continue;
+      let tag = rows.find((r) => r.id === o.row.id)?.replace;
+      const b = byKey.get(o.part);
+      if (!b || !tag) continue;
+      for (const use of b.uses) {
+        const g = o.span.map((i) => use.geo[i]).filter(Boolean);
+        if (!g.length) continue;
+        // the value's first line: a value wrapped onto a second line keeps its tag on the first
+        const line = g.filter((x) => Math.abs((x.y - g[0].y) * g[0].ux - (x.x - g[0].x) * g[0].uy) < g[0].em * 0.5);
+        const along = (x, y) => (x - g[0].x) * g[0].ux + (y - g[0].y) * g[0].uy;
+        const width = Math.max(...line.map((x) => along(x.ex, x.ey)));
+        // the spaces between the value's words stay in the page's text, where its first word began:
+        // the tag starts after them, so a reader meets the spaces, then the tag whole
+        const find = o.row.find;
+        const lead = o.span.length === find.length ? [...find].reduce((n, ch, i) => n + (ch === " " && g[i] ? along(g[i].ex, g[i].ey) - along(g[i].x, g[i].y) : 0), 0) : 0;
+        const pageIx = typeof use.page === "number" ? use.page : o.page;
+        // a tag fits where its value was; a restored value fits up to the next word on its line
+        const skip = new Set(o.span.map((i) => o.part + ":" + i));
+        const room = fit ? Math.max(1, width - lead) : Math.max(1, Math.min(roomAfter(pageIx, g[0], along, skip), 2000) - g[0].em * 0.25);
+        // never below 4 pt, and a restored value never below 60% of its line's size: it is read by a person
+        const size = Math.max(fit ? 4 : g[0].em * 0.6, Math.min(g[0].em, g[0].em * room / Math.max(1, font.widthOfTextAtSize(tag, g[0].em))));
+        const page = pages[pageIx];
+        if (!page) continue;
+        // Helvetica writes Windows-1252; a letter outside it is written as "?"
+        tag = [...tag].map((ch) => { try { font.encodeText(ch); return ch; } catch (e) { return "?"; } }).join("");
+        page.drawText(tag, { x: g[0].x + lead * g[0].ux, y: g[0].y + lead * g[0].uy, size, font, color: L.rgb(0, 0, 0), rotate: L.degrees(Math.atan2(g[0].uy, g[0].ux) * 180 / Math.PI) });
+        drawn++;
+      }
+    }
+    if (!drawn) return { why: "no tag could be placed" };
+    return { bytes: await doc.save({ useObjectStreams: false }) };
   }
 
   // ---------------------------------------------------------------- the text PDF
@@ -10735,7 +10927,7 @@ const PDFSwapAttach = (() => {
     return await doc.save({ useObjectStreams: false });
   }
 
-  return { read, swap, nameFor, textPdf };
+  return { read, swap, restoreFile, nameFor, textPdf, overlay };
 })();
 globalThis.PDFSwapAttach = PDFSwapAttach;
 if (typeof module !== "undefined") module.exports = PDFSwapAttach;
@@ -10762,7 +10954,7 @@ if (typeof module !== "undefined") module.exports = PDFSwapAttach;
   const KIND = { name: "Name", business: "Business", ssn: "SSN", ssn4: "SSN", ein: "EIN", phone: "Phone", email: "Email", street: "Street", unit: "Suite / unit", city: "City", zip: "ZIP", zip4: "ZIP+4", acct: "Account", idnum: "ID number", dob: "Birth date", iddate: "Date", custom: "Your list" };
 
   // the key lives here, in this tab's memory, and nowhere else unless it is saved locked
-  const S = { key: H.newKey(), alwaysHide: [], plan: [], off: new Set(), result: null, timer: 0 };
+  const S = { key: H.newKey(), alwaysHide: [], clients: [], plan: [], off: new Set(), result: null, timer: 0 };
 
   // ------------------------------------------------------------------ the two modes
   for (const b of document.querySelectorAll("[data-mode]")) b.addEventListener("click", () => mode(b.dataset.mode));
@@ -10785,7 +10977,11 @@ if (typeof module !== "undefined") module.exports = PDFSwapAttach;
       if (S.atts.some((a) => a.att.name === f.name)) continue;
       if (f.size > 50e6) { S.atts.push({ att: { name: f.name, problem: "over 50 MB; swap it with the folder swap, which writes one file at a time" }, out: null }); continue; }
       fill($("hushFileMsg"), "Reading " + f.name);
-      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer())).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
+      // a scan or photo, or a PDF that may hold one, is read by the page's OCR, started on first use
+      const ocr = /\.(pdf|jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i.test(f.name) && globalThis.PDFSwapScanReader
+        ? await (fill($("hushFileMsg"), "Starting the reader for scans and photos"), globalThis.PDFSwapScanReader()).catch(() => null) : null;
+      fill($("hushFileMsg"), "Reading " + f.name + (ocr ? ", letter by letter where it is a scan" : ""));
+      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer()), { ocr }).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
       S.atts.push({ att, out: null });
     }
     fill($("hushFileMsg"));
@@ -10830,6 +11026,16 @@ if (typeof module !== "undefined") module.exports = PDFSwapAttach;
       renderAtts();
     }
   }
+  // the firm's client list: read in this tab, kept in its memory (and in a locked key if one is saved)
+  $("clientList").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    const got = H.clientList(await f.text());
+    for (const c of got) if (!S.clients.some((x) => x[0] === c[0] && x[1] === c[1])) S.clients.push(c);
+    fill($("clientMsg"), got.length ? plural(S.clients.length, "client") + " known by name, from " + f.name + ". The list stays in this tab." : "No names found in " + f.name + ": it needs a Name, Client, First or Last column, or one name per line.");
+    renderKey(); run();
+  });
   $("hushList").addEventListener("input", (e) => {
     S.alwaysHide = e.target.value.split(/\r?\n/).map((w) => w.trim()).filter(Boolean);
     clearTimeout(S.timer); S.timer = setTimeout(run, 250);
@@ -10838,9 +11044,10 @@ if (typeof module !== "undefined") module.exports = PDFSwapAttach;
   function run() {
     const text = source.value;
     // the message and every attachment (its name too) are read as one, so a person has one tag
-    const all = [text, ...S.atts.filter((a) => !a.att.problem).flatMap((a) => [a.att.name.replace(/_/g, " ").replace(/\.[^.]+$/, ""), a.att.text])].join("\n\n");
+    // an attachment's text is read with the spaces OCR loses put back, as the companion reads it
+    const all = [text, ...S.atts.filter((a) => !a.att.problem).flatMap((a) => [a.att.name.replace(/_/g, " ").replace(/\.[^.]+$/, ""), H.ocrText(a.att.text)])].join("\n\n");
     if (!all.trim()) { S.plan = []; S.result = null; render(); renderAtts(); return; }
-    S.plan = H.find(all, { key: S.key, alwaysHide: S.alwaysHide });
+    S.plan = H.find(all, { key: S.key, alwaysHide: S.alwaysHide, clients: S.clients });
     for (const p of S.plan) if (S.off.has(p.value.toUpperCase())) p.checked = false;
     // a preview: the key grows only when the swapped text is copied, a file is downloaded or an
     // answer is restored
@@ -10930,11 +11137,29 @@ if (typeof module !== "undefined") module.exports = PDFSwapAttach;
     catch (e) { $("restoreOut").select(); fill($("restoreCopyMsg"), "Selected; press Ctrl+C to copy."); }
   });
 
+  // files the AI gave back: each tag the key knows put back inside the file itself
+  $("restoreFile").addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    commit();
+    for (const f of files) {
+      const row = el("div", { class: "att" }, el("div", { class: "grow" }, el("span", { class: "name", text: f.name }), " ", el("span", { class: "count", text: "restoring" })));
+      $("restoreFiles").append(row);
+      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer())).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
+      const r = await A.restoreFile(att, S.key).catch((err) => ({ problem: "it could not be restored (" + err.message + ")" }));
+      fill(row, el("div", { class: "grow" }, el("span", { class: "name", text: r.name || f.name }), " ",
+        r.problem ? el("span", { class: "count bad", text: "not restored" }) : el("span", { class: "count", text: plural(r.count, "tag") + " restored" }),
+        r.problem ? el("div", { class: "small result-bad", text: r.problem }) : null,
+        (r.notes || []).map((n) => el("div", { class: "small", text: n }))),
+        r.bytes ? el("button", { type: "button", class: "teal", onclick: () => save(r.bytes, r.name) }, "Download restored file") : null);
+    }
+  });
+
   // ------------------------------------------------------------------ the key
   function renderKey() {
     const n = S.key.entries.length;
     fill($("keyState"), n ? "This tab holds a key of " + plural(n, "tag") + ". Closing the tab forgets it." : "No key yet. It is made when you copy swapped text, and lives only in this tab.");
-    $("keySave").disabled = !n && !S.alwaysHide.length;
+    $("keySave").disabled = !n && !S.alwaysHide.length && !S.clients.length;
     $("keyForget").disabled = !n;
   }
   $("keyForget").addEventListener("click", () => {
@@ -10947,7 +11172,7 @@ if (typeof module !== "undefined") module.exports = PDFSwapAttach;
     if (a !== b) { fill($("keyMsg"), el("span", { class: "result-bad" }, "The two passphrases differ.")); return; }
     try {
       fill($("keyMsg"), "Locking");
-      const file = await H.lock(S.key, S.alwaysHide, a);
+      const file = await H.lock(S.key, S.alwaysHide, a, S.clients);
       const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "");
       const link = el("a", { href: URL.createObjectURL(new Blob([file], { type: "application/json" })), download: "Swap key " + stamp + ".swapkey" });
       document.body.append(link); link.click(); link.remove();
@@ -10966,6 +11191,7 @@ if (typeof module !== "undefined") module.exports = PDFSwapAttach;
       for (const ent of got.key.entries) if (!S.key.entries.some((k) => k.tag === ent.tag)) S.key.entries.push(ent);
       for (const [b, n] of Object.entries(got.key.counters)) S.key.counters[b] = Math.max(S.key.counters[b] || 0, n);
       for (const w of got.alwaysHide) if (!S.alwaysHide.includes(w)) S.alwaysHide.push(w);
+      for (const c of got.clients) if (!S.clients.some((x) => x[0] === c[0] && x[1] === c[1])) S.clients.push(c);
       $("hushList").value = S.alwaysHide.join("\n");
       $("keyOpenPass").value = "";
       fill($("keyMsg"), "Opened " + f.name + ": " + plural(got.key.entries.length, "tag") + ", " + plural(got.alwaysHide.length, "word") + " to always hide.");

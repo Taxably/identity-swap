@@ -27,12 +27,22 @@ const A = require(path.join(W, "attach.js"));
   for (const n of fs.readdirSync(job.in).sort()) atts.push(await A.read(n, new Uint8Array(fs.readFileSync(path.join(job.in, n)))));
   // as the page reads them: the message, and each attachment's name and text, as one
   const all = [job.message, ...atts.filter((a) => !a.problem).flatMap((a) => [a.name.replace(/_/g, " ").replace(/\.[^.]+$/, ""), a.text])].join("\n\n");
-  const plan = H.find(all, { key: H.newKey() });
+  const key = H.newKey();
+  const plan = H.find(all, { key });
+  H.hush(all, plan, key);
   const out = [];
+  fs.mkdirSync(path.join(job.out, "restored"), { recursive: true });
   for (const a of atts) {
     const r = await A.swap(a, plan);
     if (r.bytes) fs.writeFileSync(path.join(job.out, r.name), r.bytes);
-    out.push({ in: a.name, name: r.name || null, how: r.how || null, problem: r.problem || null, notes: r.notes || [] });
+    // the swapped file as an AI would hand it back, restored with the key
+    let restored = null;
+    if (r.bytes) {
+      const back = await A.restoreFile(await A.read(r.name, r.bytes), key);
+      if (back.bytes) fs.writeFileSync(path.join(job.out, "restored", back.name), back.bytes);
+      restored = { name: back.name || null, problem: back.problem || null, notes: back.notes || [] };
+    }
+    out.push({ in: a.name, name: r.name || null, how: r.how || null, problem: r.problem || null, notes: r.notes || [], restored });
   }
   process.stdout.write(JSON.stringify({ message: H.hush(job.message, plan, H.newKey()).text, files: out, tags: plan.map((p) => p.tag) }));
 })().catch((e) => { process.stderr.write(String(e && e.stack || e)); process.exit(1); });

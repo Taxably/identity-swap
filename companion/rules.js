@@ -22,7 +22,8 @@ process.stdin.on("end", () => {
   const q = JSON.parse(input);
   const key = q.key || H.newKey();
   let out;
-  if (q.op === "plan") out = { plan: H.find(q.texts.join("\n\n"), { key, alwaysHide: q.alwaysHide || [] }) };
+  if (q.op === "plan") out = { plan: H.find(q.texts.join("\n\n"), { key, alwaysHide: q.alwaysHide || [], clients: q.clients || [] }) };
+  else if (q.op === "clients") out = { people: H.clientList(q.text) };
   else if (q.op === "swap") out = { texts: q.texts.map((t) => H.hush(t, q.plan, H.newKey()).text) };
   else if (q.op === "rows") out = { rows: H.rowsFor(q.text, q.plan) };
   else if (q.op === "leaks") out = { leaks: H.leaks(q.text, q.plan.filter((p) => p.checked)) };

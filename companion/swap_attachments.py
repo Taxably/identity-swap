@@ -68,8 +68,11 @@ class Rules:
             raise RuntimeError("the rules failed: " + r.stderr.strip()[-400:])
         return json.loads(r.stdout)
 
-    def plan(self, texts, always_hide):
-        return self.ask(op="plan", texts=texts, alwaysHide=always_hide)["plan"]
+    def plan(self, texts, always_hide, clients=()):
+        return self.ask(op="plan", texts=texts, alwaysHide=always_hide, clients=list(clients))["plan"]
+
+    def clients(self, text):
+        return self.ask(op="clients", text=text)["people"]
 
     def swap(self, texts, plan):
         return self.ask(op="swap", texts=list(texts), plan=plan)["texts"] if texts else []
@@ -484,6 +487,7 @@ def main(argv=None) -> int:
     ap.add_argument("--message", help="a text file holding the message")
     ap.add_argument("--message-text", help="the message itself")
     ap.add_argument("--always-hide", action="append", default=[], help="a word to hide wherever it appears (repeatable)")
+    ap.add_argument("--clients", help="the firm's client list (a CSV or text export): every client is known by name, however rare")
     ap.add_argument("--accept", action="append", default=[], help="a value the check after swapping reads as personal but you have "
                     "looked at and know is not (a firm's own name, a public payer): the file is delivered with it (repeatable)")
     ap.add_argument("--key-passphrase-env", help="name of an environment variable holding a passphrase: the key is saved locked "
@@ -523,7 +527,11 @@ def main(argv=None) -> int:
 
         # 2. one plan over the message, every file's text and every file's name
         texts = [message] + [t for it in items if not it["problem"] for t in (os.path.splitext(it["in"])[0].replace("_", " "), it["text"])]
-        plan = rules.plan(texts, args.always_hide) if any(t.strip() for t in texts) else []
+        clients = []
+        if args.clients:
+            with open(args.clients, encoding="utf-8-sig", errors="replace") as fh:
+                clients = rules.clients(fh.read())
+        plan = rules.plan(texts, args.always_hide, clients) if any(t.strip() for t in texts) else []
         if message.strip():
             with open(os.path.join(args.out, "message (swapped).txt"), "w", encoding="utf-8") as fh:
                 fh.write(rules.swap([message], plan)[0])
@@ -544,7 +552,7 @@ def main(argv=None) -> int:
             phrase = os.environ.get(args.key_passphrase_env, "")
             stamp = dt.datetime.now().strftime("%Y-%m-%d %H%M")
             with open(os.path.join(args.out, "Swap key " + stamp + ".swapkey"), "w", encoding="utf-8") as fh:
-                fh.write(lock_key(rules.key(plan), args.always_hide, phrase))
+                fh.write(lock_key(rules.key(plan), args.always_hide, phrase, clients))
         write_report(items, plan, args.out)
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -628,7 +636,7 @@ def write_report(items, plan, outdir):
 
 
 # ---------------------------------------------------------------- the locked key, as the page writes it
-def lock_key(key, always_hide, passphrase):
+def lock_key(key, always_hide, passphrase, clients=()):
     """The key in the page's own .swapkey format (AES-256-GCM, PBKDF2-SHA-256, 600,000 rounds), so
     the page opens it and restores an answer."""
     if len(passphrase) < 8:
@@ -638,7 +646,7 @@ def lock_key(key, always_hide, passphrase):
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     salt, iv = os.urandom(16), os.urandom(12)
     k = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=600000).derive(passphrase.encode("utf-8"))
-    plain = json.dumps({"entries": key["entries"], "counters": key["counters"], "alwaysHide": always_hide}).encode("utf-8")
+    plain = json.dumps({"entries": key["entries"], "counters": key["counters"], "alwaysHide": always_hide, "clients": list(clients)}).encode("utf-8")
     data = AESGCM(k).encrypt(iv, plain, None)
     b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731
     return json.dumps({"format": "identity-swap-hush-key", "version": 1, "cipher": "AES-256-GCM", "kdf": "PBKDF2-SHA-256",

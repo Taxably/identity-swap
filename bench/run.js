@@ -39,12 +39,14 @@ function labelled(entry, doc) {
   return SPLIT(entry.value).every((w) => words.has(w));
 }
 
-function score(docs, show) {
+function score(docs, show, withClients = false) {
   const kinds = {}, misses = [], wrongs = [];
   let entries = 0, wrong = 0, keeps = 0, keptBroken = 0;
   for (const doc of docs) {
     const text = doc.ocr ? H.ocrText(doc.text) : doc.text;
-    const plan = H.find(text, { key: H.newKey() });
+    // with the firm's client list: the household's own people, as a client list export names them
+    const clients = withClients ? doc.values.filter((v) => v.kind === "person").map((v) => { const m = /^([^,]+),\s*(\S+)/.exec(v.value); const w = v.value.split(/\s+/); return m ? [m[2], m[1]] : [w[0], w.at(-1)]; }) : [];
+    const plan = H.find(text, { key: H.newKey(), clients });
     const hushed = H.hush(text, plan, H.newKey()).text;
     for (const v of doc.values) {
       const k = (kinds[v.kind] = kinds[v.kind] || { total: 0, found: 0 });
@@ -75,13 +77,16 @@ function main() {
   console.log("kind       found / total   recall");
   for (const r of got.table) console.log(r.kind.padEnd(10) + String(r.found).padStart(6) + " / " + String(r.total).padEnd(6) + "  " + (100 * r.found / r.total).toFixed(2) + "%");
   console.log("\nwrongly hidden: " + (100 * got.wrongRate).toFixed(2) + "% of " + got.counts.entries + " hidden values; words that must stay, removed: " + got.keepBroken + " of " + got.counts.keeps);
-  const base = { recall: got.recall, wrongRate: got.wrongRate, keepBroken: got.keepBroken };
+  const firm = score(make(2026, 600), false, true);
+  console.log("with the firm's client list: names " + (100 * firm.recall.person).toFixed(2) + "%, wrongly hidden " + (100 * firm.wrongRate).toFixed(2) + "%");
+  const base = { recall: got.recall, wrongRate: got.wrongRate, keepBroken: got.keepBroken, withClients: { person: firm.recall.person, wrongRate: firm.wrongRate } };
   if (args.includes("--update")) { fs.writeFileSync(BASELINE, JSON.stringify(base, null, 2) + "\n"); console.log("\nbaseline written"); return 0; }
   if (!fs.existsSync(BASELINE)) { console.log("\nno baseline yet: run with --update"); return 1; }
   const was = JSON.parse(fs.readFileSync(BASELINE, "utf8"));
   const drops = [];
   for (const [k, v] of Object.entries(was.recall)) if ((got.recall[k] ?? 0) < v) drops.push(k + " recall " + v + " -> " + (got.recall[k] ?? 0));
   if (got.wrongRate > was.wrongRate) drops.push("wrongly hidden " + was.wrongRate + " -> " + got.wrongRate);
+  if (was.withClients && firm.recall.person < was.withClients.person) drops.push("names with the client list " + was.withClients.person + " -> " + firm.recall.person);
   if (got.keepBroken > was.keepBroken) drops.push("words that must stay, removed " + was.keepBroken + " -> " + got.keepBroken);
   if (drops.length) { console.log("\nWORSE THAN THE BASELINE:\n  " + drops.join("\n  ")); return 1; }
   const better = Object.entries(got.recall).some(([k, v]) => v > (was.recall[k] ?? 0)) || got.wrongRate < was.wrongRate || got.keepBroken < was.keepBroken;

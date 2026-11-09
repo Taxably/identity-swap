@@ -8,11 +8,14 @@ a table, an Excel workbook with a formula, and a picture. What is held:
     the W-2, the notes and the wage sheet
   * the Word file and the workbook keep their layout: the table is a table, the formula is a
     formula, the numbers are numbers; no personal value is left in any part of either
-  * a PDF that cannot take the tags in its own fonts comes back as a text PDF that says so on
-    every page, holding every word of the original but the hidden values, read here with
-    pdfplumber
+  * a PDF keeps its layout whatever its fonts hold: one whose embedded subset has no "[" has each
+    value taken out and its tag drawn in its place, read here with pdfplumber line by line as the
+    original reads, every word of the original there but the hidden values
   * a file's name is swapped too ("Quillfeather W2.pdf" never reaches the AI)
   * a picture is refused with a pointer to the folder swap, never passed through
+  * every swapped file, handed back as an AI would, is restored with the key: the Word file and
+    the workbook come back with every value where it was, the PDF reads line for line as the
+    original, and the restored names carry the real names again
 
 Skipped where node is absent.
 """
@@ -127,6 +130,20 @@ def test_the_workbook_keeps_its_formula_and_numbers(run):
     assert ws["C2"].value == 84210 and ws["E1"].value == "=SUM(C2:C3)"
 
 
+def test_a_pdf_keeps_its_layout_even_when_its_font_lacks_the_brackets(run):
+    import pdfplumber
+    if "1099 subset font.pdf" not in run["by"]:
+        pytest.skip("no DejaVu font to embed")
+    f = run["by"]["1099 subset font.pdf"]
+    assert f["how"] == "layout kept", f
+    assert any("tag drawn in its place" in n for n in f["notes"]), f
+    with pdfplumber.open(os.path.join(run["out"], f["name"])) as pdf:
+        lines = (pdf.pages[0].extract_text() or "").splitlines()
+    assert lines[0] == "Client: [PERSON-1] SSN [SSN-1]", lines
+    assert lines[1] == "Spouse: [PERSON-2]", lines
+    assert lines[-1] == "Wages 84,210.00 Federal withholding 9,880.00", lines
+
+
 def test_a_pdf_the_tags_cannot_be_drawn_in_comes_back_as_a_text_pdf(run):
     import pdfplumber
     for name in ["Quillfeather W2.pdf", "1099 subset font.pdf"]:
@@ -148,3 +165,26 @@ def test_a_picture_is_refused_not_passed_through(run):
     f = run["by"]["photo.png"]
     assert f["problem"] and "folder swap" in f["problem"]
     assert not os.path.exists(os.path.join(run["out"], "photo.png"))
+
+
+def test_every_swapped_file_restores_to_the_original(run):
+    import docx
+    import openpyxl
+    import pdfplumber
+    rdir = os.path.join(run["out"], "restored")
+    for f in run["files"]:
+        if f["name"]:
+            assert f["restored"] and not f["restored"]["problem"], f
+    d = docx.Document(os.path.join(rdir, run["by"]["Quillfeather_Marisol notes.docx"]["restored"]["name"]))
+    assert run["by"]["Quillfeather_Marisol notes.docx"]["restored"]["name"] == "Quillfeather_Marisol notes (restored).docx"
+    assert [p.text for p in d.paragraphs][1:1 + len(LINES)] == LINES
+    assert d.tables[0].rows[0].cells[1].text == "Elena Quillfeather"
+    ws = openpyxl.load_workbook(os.path.join(rdir, run["by"]["wages.xlsx"]["restored"]["name"])).active
+    assert [ws["A2"].value, ws["B2"].value, ws["C2"].value, ws["E1"].value] == ["Marisol J Quillfeather", "481-27-3306", 84210, "=SUM(C2:C3)"]
+    for name in ["Quillfeather W2.pdf", "1099 subset font.pdf"]:
+        if name not in run["by"]:
+            continue
+        with pdfplumber.open(os.path.join(rdir, run["by"][name]["restored"]["name"])) as pdf:
+            got = [" ".join(line.replace(" ,", ",").split()) for line in (pdf.pages[0].extract_text() or "").splitlines()]
+        want = [" ".join(line.split()) for line in LINES]
+        assert got == want, (name, got)

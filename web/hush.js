@@ -26,9 +26,9 @@ const PDFSwapHush = (() => {
   // which tag each kind of value takes; a state alone is left as it is (it identifies nobody and
   // a tax answer often turns on it)
   const TAG = { name: "PERSON", business: "BUSINESS", ssn: "SSN", ssn4: "SSN", ein: "EIN", phone: "PHONE", email: "EMAIL", street: "ADDRESS", unit: "UNIT",
-    city: "CITY", zip: "ZIP", zip4: "ZIP", acct: "ACCOUNT", idnum: "ID", dob: "DOB", iddate: "DATE", custom: "HIDDEN" };
+    city: "CITY", zip: "ZIP", zip4: "ZIP", acct: "ACCOUNT", card: "CARD", idnum: "ID", dob: "DOB", iddate: "DATE", custom: "HIDDEN" };
   // kinds whose digits are the value, however they are spaced or punctuated
-  const DIGITS = new Set(["ssn", "ein", "phone", "acct", "idnum"]);
+  const DIGITS = new Set(["ssn", "ein", "phone", "acct", "card", "idnum"]);
   // kinds that are numbers, so no letter glued to them ("AZ85711") may hide them
   const NUMBERS = new Set(["zip", "zip4", "dob", "iddate"]);
   // a word that opens a sentence or a greeting is never part of a name run
@@ -41,6 +41,58 @@ const PDFSwapHush = (() => {
   const digitsOf = (v) => String(v).replace(/\D/g, "");
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const wordy = (s) => /^[\p{L}\p{N}]/u.test(s) || /[\p{L}\p{N}]$/u.test(s);
+
+  /** Whether a run of digits is a card number: 13 to 19 digits whose last is the Luhn check digit. */
+  function luhn(d) {
+    if (d.length < 13 || d.length > 19 || /^(\d)\1+$/.test(d)) return false;
+    let sum = 0;
+    for (let i = 0; i < d.length; i++) { let n = +d[d.length - 1 - i]; if (i % 2) { n *= 2; if (n > 9) n -= 9; } sum += n; }
+    return sum % 10 === 0;
+  }
+
+  /** A firm's client list (a CSV or text export from ProConnect, TaxDome, Canopy or a spreadsheet) as
+   * the people it names: [first, last] pairs ([""', last] for a surname alone), which `find` then
+   * treats as names it knows, so a client gets a person's tag wherever they turn up. Columns are
+   * found by their headers (Name, Client, Taxpayer, Spouse, First, Last); a list with no headers is
+   * read line by line. */
+  function clientList(text) {
+    const rows = String(text).split(/\r?\n/).filter((l) => l.trim()).map(splitCsv);
+    if (!rows.length) return [];
+    const head = rows[0].map((h) => h.trim().toLowerCase());
+    const col = (re) => head.findIndex((h) => re.test(h));
+    const fi = col(/^(first|first name|taxpayer first|given)/), la = col(/^(last|last name|surname|family|taxpayer last)/);
+    const named = head.map((h, i) => (/(^|\b)(name|client|taxpayer|spouse|dependent|contact)(\b|$)/.test(h) && i !== fi && i !== la ? i : -1)).filter((i) => i >= 0);
+    const hasHead = fi >= 0 || la >= 0 || named.length > 0;
+    const people = [];
+    for (const r of hasHead ? rows.slice(1) : rows) {
+      if (fi >= 0 && la >= 0 && r[fi] && r[la]) people.push([r[fi].trim(), r[la].trim()]);
+      for (const i of hasHead ? named : [0]) {
+        const v = (r[i] || "").trim();
+        if (!v || /\d/.test(v)) continue;
+        // "Last, First M", or "First M Last"; "&" or "and" joins a couple ("Marisol & Daniel Quillfeather")
+        const lf = /^([^,]+),\s*(.+)$/.exec(v);
+        const [lastPart, rest] = lf ? [lf[1].trim(), lf[2].trim()] : [v.split(/\s+/).at(-1), v.split(/\s+/).slice(0, -1).join(" ")];
+        const firsts = rest.split(/\s*(?:&|\band\b)\s*/i).filter(Boolean);
+        if (!firsts.length) people.push(["", lastPart]);
+        for (const f of firsts) people.push([f.split(/\s+/)[0], lastPart]);
+      }
+    }
+    const seen = new Set();
+    return people.filter(([f, l]) => (!f || /^\p{L}/u.test(f)) && /^\p{L}/u.test(l) && l.length >= 2 && !seen.has(f + "|" + l) && seen.add(f + "|" + l));
+  }
+  function splitCsv(line) {
+    const out = [];
+    let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === "," || ch === "\t" || ch === ";") { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out;
+  }
 
   /** An empty key: which tag stands for which value. */
   function newKey() { return { entries: [], counters: {} }; }
@@ -194,7 +246,7 @@ const PDFSwapHush = (() => {
   /** What to hide in `text`: one entry per value, each with its tag (reusing the key's tag for a
    * value it already holds) and every form it is written in. Nothing is added to the key until
    * the text is hushed. */
-  function find(text, { key = newKey(), alwaysHide = [] } = {}) {
+  function find(text, { key = newKey(), alwaysHide = [], clients = [] } = {}) {
     const P = PII();
     const { items } = P.detect([P.textProfile(text, "pasted.txt")]);
     const draft = { entries: key.entries.slice(), counters: { ...key.counters } };
@@ -218,13 +270,15 @@ const PDFSwapHush = (() => {
 
     // people: the full name first, then each of its words where it stands alone
     const found = new Set([...items.values()].filter((i) => i.kind === "name" && i.checked).map((i) => i.display.toUpperCase()));
+    // the firm's own clients, from its client list, are people whatever the lists say of their names
+    for (const [f, l] of clients) for (const w of [f, ...String(l).split(/[\s-]+/), l]) if (w && w.length > 1) found.add(w.toUpperCase());
     // a person hidden in an earlier paste is known in this one too
     for (const e of key.entries) if (e.kind === "name") for (const w of String(e.value).split(/\s+/)) if (!isInitial(w)) found.add(bare(w).toUpperCase());
     const people = [], singles = [];
     const other = new Set([...items.values()].filter((i) => i.kind === "city" || i.kind === "state" || i.kind === "business").map((i) => i.display.toUpperCase()));
     for (const run of personRuns(text, found, other)) {
       // one word alone ("Hi Sarah,", "the Quillfeathers") is a name word, found below, not a person
-      if (!run.last) { if (!found.has(norm(run.first))) singles.push(run.first); continue; }
+      if (!run.last) { singles.push(run.first); continue; }
       let id = norm(run.first) + "|" + norm(run.last || "");
       // "Quillfeather Marisol", as a file or folder name often puts it, is "Marisol Quillfeather"
       const flipped = norm(run.last) + "|" + norm(run.first);
@@ -258,6 +312,8 @@ const PDFSwapHush = (() => {
       if (it.kind !== "name" || !it.checked || it.display.length < 2 || plan.some((p) => norm(p.value) === norm(it.display))) continue;
       take("name", it.display, [...(it.forms ? it.forms.keys() : [])], "name");
     }
+    // a payment card number, 13 to 19 digits in groups, that passes the card networks' check digit (Luhn)
+    for (const m of text.matchAll(/(?<![\d-])(\d{4}(?:[ -]?\d{3,4}){2,4})(?![\d-])/g)) if (luhn(digitsOf(m[1]))) take("card", m[1], [], "card");
     // an account number after its label, with words between ("Account number (see instructions) 9923613648")
     for (const m of text.matchAll(/\b(?:account|acct)\.?\b[^\d\n]{0,40}?(\d[\d-]{5,}\d)(?!\d)/gi)) take("acct", m[1], [], "acct");
     // a birth date in any common form, after the words that say it is one
@@ -304,23 +360,24 @@ const PDFSwapHush = (() => {
   /** One pattern per form: whole words only (so "Ann" never hides inside "Annual"), any
    * capitals; a number of digits however it is spaced ("481-27-3306", "481 27 3306",
    * "481273306"). */
-  function patternFor(entry, form) {
+  function patternFor(entry, form, loose = false) {
     if (DIGITS.has(entry.kind) && digitsOf(form).length >= 4) {
       const d = digitsOf(form).split("");
       // a phone's area code in brackets is hidden with its brackets: "([PHONE-1]" would be odd
       return (entry.kind === "phone" ? "(?:\\(\\s?)?" : "") + "(?<!\\d)" + d.join("[\\s.\\-/()]{0,2}") + "(?!\\d)";
     }
     if (NUMBERS.has(entry.kind) && /^\d/.test(form)) return "(?<!\\d)" + esc(form).replace(/\s+/g, "\\s+") + "(?!\\d)";
-    const body = esc(form).replace(/\s+/g, "\\s+");
+    // text an OCR engine read may lose the space between words ("Marisol JQuillfeather")
+    const body = esc(form).replace(/\s+/g, loose ? "\\s*" : "\\s+");
     return (wordy(form) ? "(?<![\\p{L}\\p{N}])" : "") + body + (wordy(form) ? "(?![\\p{L}\\p{N}])" : "");
   }
-  function matcher(entries) {
+  function matcher(entries, loose = false) {
     const pairs = [];
     for (const e of entries) for (const f of e.forms) pairs.push({ e, f });
     // the longest form first, so a full name is hidden before its first name
     pairs.sort((a, b) => b.f.length - a.f.length);
     if (!pairs.length) return null;
-    return { rx: new RegExp(pairs.map((p) => "(" + patternFor(p.e, p.f) + ")").join("|"), "giu"), pairs };
+    return { rx: new RegExp(pairs.map((p) => "(" + patternFor(p.e, p.f, loose) + ")").join("|"), "giu"), pairs };
   }
 
   /** The text with every ticked entry replaced by its tag, and the key grown by those entries. */
@@ -349,9 +406,9 @@ const PDFSwapHush = (() => {
    * each place a ticked entry matches in the file's text, as the exact characters printed there,
    * with its tag. An engine replaces exact text, so "481 27 3306" and "481-27-3306" are each a
    * row of their own. Longest first, so a full name is replaced before its first name. */
-  function rowsFor(text, plan) {
+  function rowsFor(text, plan, { loose = false } = {}) {
     const on = plan.filter((p) => p.checked);
-    const m = matcher(on);
+    const m = matcher(on, loose);
     const rows = new Map();
     if (m) for (const hit of String(text).matchAll(m.rx)) {
       const k = hit.slice(1, 1 + m.pairs.length).findIndex((g) => g !== undefined);
@@ -423,10 +480,10 @@ const PDFSwapHush = (() => {
     return subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
   }
   /** The key, and the words to always hide, as a file only the passphrase opens. */
-  async function lock(key, alwaysHide, passphrase) {
+  async function lock(key, alwaysHide, passphrase, clients = []) {
     if (!passphrase || passphrase.length < 8) throw new Error("Use a passphrase of at least 8 characters.");
     const salt = globalThis.crypto.getRandomValues(new Uint8Array(16)), iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-    const plain = new TextEncoder().encode(JSON.stringify({ entries: key.entries, counters: key.counters, alwaysHide }));
+    const plain = new TextEncoder().encode(JSON.stringify({ entries: key.entries, counters: key.counters, alwaysHide, clients }));
     const data = new Uint8Array(await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv }, await derive(passphrase, salt, ITERATIONS), plain));
     return JSON.stringify({ format: FORMAT, version: 1, cipher: "AES-256-GCM", kdf: "PBKDF2-SHA-256", iterations: ITERATIONS, salt: b64(salt), iv: b64(iv), data: b64(data) });
   }
@@ -440,10 +497,10 @@ const PDFSwapHush = (() => {
       plain = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv) }, await derive(passphrase, unb64(f.salt), f.iterations), unb64(f.data));
     } catch (e) { throw new Error("That passphrase does not open this key."); }
     const got = JSON.parse(new TextDecoder().decode(plain));
-    return { key: { entries: got.entries || [], counters: got.counters || {} }, alwaysHide: got.alwaysHide || [] };
+    return { key: { entries: got.entries || [], counters: got.counters || {} }, alwaysHide: got.alwaysHide || [], clients: got.clients || [] };
   }
 
-  return { TAG, newKey, find, hush, rowsFor, ocrText, leaks, restore, renameTag, lock, unlock, personRuns };
+  return { TAG, newKey, find, hush, rowsFor, ocrText, clientList, luhn, leaks, restore, renameTag, lock, unlock, personRuns };
 })();
 globalThis.PDFSwapHush = PDFSwapHush;
 if (typeof module !== "undefined") module.exports = PDFSwapHush;

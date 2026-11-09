@@ -131,6 +131,10 @@ AI the client.
    `[ADDRESS-1]`, `[CITY-1]`, `[ZIP-1]`, `[PHONE-1]`, `[EMAIL-1]`, `[ACCOUNT-1]`, `[DOB-1]`,
    `[BUSINESS-1]`, and `[HIDDEN-1]` for your own list. A state code is left as written, since it
    identifies nobody and a tax answer often turns on it.
+   Under **Words to always hide**, import the firm's client list (a CSV or text export from
+   ProConnect, TaxDome, Canopy or a spreadsheet): every client is then a known person, however
+   rare the name. On the benchmark this takes names from 99.5% to 100%. The list stays in the tab,
+   and goes into a saved key only locked.
 2. Check the list. Untick anything that should stay, or rename a tag so the AI reads it better
    (`[PERSON-2]` to `[SPOUSE]`, `[PERSON-3]` to `[CHILD-1]`). Copy the swapped text.
 3. Paste the AI's answer back. Every tag the key knows becomes the real value again. A tag the AI
@@ -144,21 +148,30 @@ the W-2 and in the wage sheet. Each attachment comes back as a file to download 
 
 - Word, Excel and PowerPoint: swapped inside the file's own parts. Tables, formulas, numbers and
   layout stay as they were.
-- PDF: swapped in place, in the PDF's own fonts, when every tag can be drawn there and the
-  engine's checks pass. Most PDFs embed only the letters they print, so a font often has no `[`;
-  then the PDF comes back as a text PDF of its pages, set in Helvetica, that says on every page it
-  is text only. An AI reads a PDF's text either way.
+- PDF: swapped in place with its layout kept. Where the PDF's own fonts can draw the tags, they are
+  written in them. Most PDFs embed only the letters they print, so a font often has no `[`: then
+  each value is taken out (which needs no letter) and its tag drawn on the same baseline in
+  Helvetica, sized to fit where the value was. Only a PDF the engine cannot change at all comes back
+  as a text PDF of its pages, labelled as one. One limit: drawn tags sit at the end of the page's
+  text stream, so a reader that ignores position (rather than reading the page as laid out) meets
+  them after the rest of the page's text.
+- Scans and photos, and PDFs whose pages are scans: read by the page's two OCR engines, each value
+  painted over with its tag in the page's own lettering, then read again. A tag wider than the
+  room its value had, or a value the readers disagree on, is blanked out instead of drawn, and the
+  file's note says so: nothing of the value is left either way.
 - The file name is swapped too: `Quillfeather W2.pdf` becomes `[PERSON-1-LAST] W2 (swapped).pdf`.
 - Every file is read back after it is made and searched for every hidden value. One that still
   holds any is not offered.
-- Photos and scans are refused here, with a pointer to the folder swap, which reads them.
+- Restoring works on files too: give the page a Word, Excel, PowerPoint, PDF or text file the AI
+  handed back, and each tag the key knows is put back inside the file, read back to check.
 
 How it finds things: the same rules the folder swap uses, plus a reading of names in running
 text (a first name followed by a surname, a name after a label such as "Spouse:" or a greeting
 such as "Hi Sarah,", a hyphenated or Irish surname), birth dates after "born" or "DOB", and
 businesses by their legal ending (LLC, Inc, Corp). An SSN, EIN, phone or account number is hidden
-however it is spaced or punctuated. **Words to always hide** catches anything else: a nickname, an
-employer, a street.
+however it is spaced or punctuated, and a card number when its check digit is right (Luhn). A
+bank's routing number names a bank, not a client, and is left as written. **Words to always hide**
+catches anything else: a nickname, an employer, a street.
 
 How it checks itself: before you copy, the swapped text is searched again for every hidden value,
 and run through the finder again. A value still present blocks it with a red note; anything that
@@ -179,7 +192,8 @@ What it does not do, plainly:
   or a small town can point to a person.
 - Swapping text does not by itself make a firm compliant with any rule on client data (IRC 7216, the
   FTC Safeguards Rule, or a state law). It supports the safeguards they expect.
-- Photos and scans are not swapped in this mode. Run them through the folder swap first.
+- The page cannot be inside the AI site itself yet: you copy the swapped text and attach the
+  swapped files. A browser extension that does this in place is the next step.
 
 ## The companion: attachments with docling, LibreOffice and Python
 
@@ -200,7 +214,7 @@ cannot:
 python companion/swap_attachments.py --out "Swapped for AI" --message message.txt "Quillfeather W2.pdf" wages.xls notes.docx
 ```
 
-Add `--always-hide WORD` for anything the rules might miss, and `--key-passphrase-env VAR` to save
+Add `--clients list.csv` to read the firm's client list, `--always-hide WORD` for anything the rules might miss, and `--key-passphrase-env VAR` to save
 the key locked with the passphrase in that environment variable. The key is a `.swapkey` in the
 page's own format: open it in the page's text swap mode to restore the AI's answer. Without the
 flag no key is written, because a key holds the real values.
@@ -238,7 +252,7 @@ never guessed. Every push runs it, and CI fails if any score drops below `bench/
 |---|---|
 | SSNs, EINs, account numbers, phones, emails, birth dates | 100% |
 | Streets, cities, ZIP codes, businesses | 100% |
-| People's names | 99.5% |
+| People's names | 99.5% (100% with the firm's client list imported) |
 | Words wrongly hidden (forms, IRS terms, banks, "Will", "Grace", "Bill") | 0 of 1,720 |
 
 The names it still misses are a first name no public list carries beside a surname no list carries,

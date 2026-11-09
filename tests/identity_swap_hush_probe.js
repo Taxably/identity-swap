@@ -37,11 +37,15 @@ const PEOPLE = "Hi Sarah, Jennifer Lopez and Michael Chen both work at Acme Plum
   const opened = await H.unlock(locked, "correct horse battery");
   let wrong = null;
   try { await H.unlock(locked, "wrong passphrase"); } catch (e) { wrong = e.message; }
-  const other = (t) => { const k = H.newKey(); return H.hush(t, H.find(t, { key: k }), k); };
+  const other = (t, clients = []) => { const k = H.newKey(); return H.hush(t, H.find(t, { key: k, clients }), k); };
+  const RARE = "Can you look at the 1099 for Kofi Ostfeather? Priya Vaskberg called. Mrs. Raman-Iyer sent the K-1.";
+  const clients = H.clientList('Client Name,SSN\n"Ostfeather, Kofi",1\n"Vaskberg, Priya & Dev",2\nRaman-Iyer,3\n');
+  const CARDS = "Paid with 4111 1111 1111 1111; the other card 4111-1111-1111-1112 was declined. Routing 021000021.";
   process.stdout.write(JSON.stringify({
     email: EMAIL, first, second, restored, renameError, afterRename: afterRename.text,
     renamedTags: renamedKey.entries.map((e) => e.tag),
     locked, opened: { tags: opened.key.entries.length, keyTags: key.entries.length, alwaysHide: opened.alwaysHide }, wrong,
     plain: other(PLAIN), labelled: other(LABELLED), people: other(PEOPLE),
+    clients, rareWithout: other(RARE).text, rareWith: other(RARE, clients).text, cards: other(CARDS).text,
   }));
 })();

@@ -19,7 +19,7 @@
   const KIND = { name: "Name", business: "Business", ssn: "SSN", ssn4: "SSN", ein: "EIN", phone: "Phone", email: "Email", street: "Street", unit: "Suite / unit", city: "City", zip: "ZIP", zip4: "ZIP+4", acct: "Account", idnum: "ID number", dob: "Birth date", iddate: "Date", custom: "Your list" };
 
   // the key lives here, in this tab's memory, and nowhere else unless it is saved locked
-  const S = { key: H.newKey(), alwaysHide: [], plan: [], off: new Set(), result: null, timer: 0 };
+  const S = { key: H.newKey(), alwaysHide: [], clients: [], plan: [], off: new Set(), result: null, timer: 0 };
 
   // ------------------------------------------------------------------ the two modes
   for (const b of document.querySelectorAll("[data-mode]")) b.addEventListener("click", () => mode(b.dataset.mode));
@@ -42,7 +42,11 @@
       if (S.atts.some((a) => a.att.name === f.name)) continue;
       if (f.size > 50e6) { S.atts.push({ att: { name: f.name, problem: "over 50 MB; swap it with the folder swap, which writes one file at a time" }, out: null }); continue; }
       fill($("hushFileMsg"), "Reading " + f.name);
-      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer())).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
+      // a scan or photo, or a PDF that may hold one, is read by the page's OCR, started on first use
+      const ocr = /\.(pdf|jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i.test(f.name) && globalThis.PDFSwapScanReader
+        ? await (fill($("hushFileMsg"), "Starting the reader for scans and photos"), globalThis.PDFSwapScanReader()).catch(() => null) : null;
+      fill($("hushFileMsg"), "Reading " + f.name + (ocr ? ", letter by letter where it is a scan" : ""));
+      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer()), { ocr }).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
       S.atts.push({ att, out: null });
     }
     fill($("hushFileMsg"));
@@ -87,6 +91,16 @@
       renderAtts();
     }
   }
+  // the firm's client list: read in this tab, kept in its memory (and in a locked key if one is saved)
+  $("clientList").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    const got = H.clientList(await f.text());
+    for (const c of got) if (!S.clients.some((x) => x[0] === c[0] && x[1] === c[1])) S.clients.push(c);
+    fill($("clientMsg"), got.length ? plural(S.clients.length, "client") + " known by name, from " + f.name + ". The list stays in this tab." : "No names found in " + f.name + ": it needs a Name, Client, First or Last column, or one name per line.");
+    renderKey(); run();
+  });
   $("hushList").addEventListener("input", (e) => {
     S.alwaysHide = e.target.value.split(/\r?\n/).map((w) => w.trim()).filter(Boolean);
     clearTimeout(S.timer); S.timer = setTimeout(run, 250);
@@ -95,9 +109,10 @@
   function run() {
     const text = source.value;
     // the message and every attachment (its name too) are read as one, so a person has one tag
-    const all = [text, ...S.atts.filter((a) => !a.att.problem).flatMap((a) => [a.att.name.replace(/_/g, " ").replace(/\.[^.]+$/, ""), a.att.text])].join("\n\n");
+    // an attachment's text is read with the spaces OCR loses put back, as the companion reads it
+    const all = [text, ...S.atts.filter((a) => !a.att.problem).flatMap((a) => [a.att.name.replace(/_/g, " ").replace(/\.[^.]+$/, ""), H.ocrText(a.att.text)])].join("\n\n");
     if (!all.trim()) { S.plan = []; S.result = null; render(); renderAtts(); return; }
-    S.plan = H.find(all, { key: S.key, alwaysHide: S.alwaysHide });
+    S.plan = H.find(all, { key: S.key, alwaysHide: S.alwaysHide, clients: S.clients });
     for (const p of S.plan) if (S.off.has(p.value.toUpperCase())) p.checked = false;
     // a preview: the key grows only when the swapped text is copied, a file is downloaded or an
     // answer is restored
@@ -187,11 +202,29 @@
     catch (e) { $("restoreOut").select(); fill($("restoreCopyMsg"), "Selected; press Ctrl+C to copy."); }
   });
 
+  // files the AI gave back: each tag the key knows put back inside the file itself
+  $("restoreFile").addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    commit();
+    for (const f of files) {
+      const row = el("div", { class: "att" }, el("div", { class: "grow" }, el("span", { class: "name", text: f.name }), " ", el("span", { class: "count", text: "restoring" })));
+      $("restoreFiles").append(row);
+      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer())).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
+      const r = await A.restoreFile(att, S.key).catch((err) => ({ problem: "it could not be restored (" + err.message + ")" }));
+      fill(row, el("div", { class: "grow" }, el("span", { class: "name", text: r.name || f.name }), " ",
+        r.problem ? el("span", { class: "count bad", text: "not restored" }) : el("span", { class: "count", text: plural(r.count, "tag") + " restored" }),
+        r.problem ? el("div", { class: "small result-bad", text: r.problem }) : null,
+        (r.notes || []).map((n) => el("div", { class: "small", text: n }))),
+        r.bytes ? el("button", { type: "button", class: "teal", onclick: () => save(r.bytes, r.name) }, "Download restored file") : null);
+    }
+  });
+
   // ------------------------------------------------------------------ the key
   function renderKey() {
     const n = S.key.entries.length;
     fill($("keyState"), n ? "This tab holds a key of " + plural(n, "tag") + ". Closing the tab forgets it." : "No key yet. It is made when you copy swapped text, and lives only in this tab.");
-    $("keySave").disabled = !n && !S.alwaysHide.length;
+    $("keySave").disabled = !n && !S.alwaysHide.length && !S.clients.length;
     $("keyForget").disabled = !n;
   }
   $("keyForget").addEventListener("click", () => {
@@ -204,7 +237,7 @@
     if (a !== b) { fill($("keyMsg"), el("span", { class: "result-bad" }, "The two passphrases differ.")); return; }
     try {
       fill($("keyMsg"), "Locking");
-      const file = await H.lock(S.key, S.alwaysHide, a);
+      const file = await H.lock(S.key, S.alwaysHide, a, S.clients);
       const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "");
       const link = el("a", { href: URL.createObjectURL(new Blob([file], { type: "application/json" })), download: "Swap key " + stamp + ".swapkey" });
       document.body.append(link); link.click(); link.remove();
@@ -223,6 +256,7 @@
       for (const ent of got.key.entries) if (!S.key.entries.some((k) => k.tag === ent.tag)) S.key.entries.push(ent);
       for (const [b, n] of Object.entries(got.key.counters)) S.key.counters[b] = Math.max(S.key.counters[b] || 0, n);
       for (const w of got.alwaysHide) if (!S.alwaysHide.includes(w)) S.alwaysHide.push(w);
+      for (const c of got.clients) if (!S.clients.some((x) => x[0] === c[0] && x[1] === c[1])) S.clients.push(c);
       $("hushList").value = S.alwaysHide.join("\n");
       $("keyOpenPass").value = "";
       fill($("keyMsg"), "Opened " + f.name + ": " + plural(got.key.entries.length, "tag") + ", " + plural(got.alwaysHide.length, "word") + " to always hide.");
