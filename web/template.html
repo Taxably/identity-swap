@@ -97,6 +97,9 @@ textarea { font: inherit; font-size: 14px; width: 100%; min-height: 150px; borde
 textarea.mono { font-family: var(--mono); font-size: 13px; }
 textarea[readonly] { background: #FCFBF8; }
 textarea:focus-visible { outline: 3px solid #7CC4C2; outline-offset: 2px; }
+.att { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; margin-top: 8px; background: #FCFBF8; }
+.att .name { font-weight: 700; overflow-wrap: anywhere; }
+.att .grow { flex: 1 1 260px; min-width: 0; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
 code.rules { display: block; font-family: var(--mono); font-size: 12px; background: #F2F0EA; border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; color: var(--ink-2); }
@@ -147,7 +150,8 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
   <section class="card">
     <div class="step"><div class="num">1</div><div><h2>Paste what you want to ask about</h2><p class="sub">A client email, a note, a document's text. Names, SSNs, EINs, addresses, phones, emails, account and ID numbers and birth dates become tags such as [PERSON-1] and [SSN-1]. The same value keeps the same tag in every paste.</p></div></div>
     <textarea id="hushIn" aria-label="Text to swap" placeholder="Paste text here" spellcheck="false"></textarea>
-    <div class="row" style="margin-top:8px"><label class="small" for="hushFile">Or open a text file (.txt, .csv, .eml, .md):</label><input id="hushFile" type="file" accept=".txt,.csv,.eml,.md,.text,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
+    <div class="row" style="margin-top:10px"><label class="small" for="hushFile">Attach files to swap the same way (PDF, Word, Excel, PowerPoint, text):</label><input id="hushFile" type="file" multiple accept=".pdf,.docx,.docm,.dotx,.xlsx,.xlsm,.xltx,.pptx,.pptm,.potx,.ppsx,.txt,.csv,.eml,.md,application/pdf,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
+    <div id="attList"></div>
     <details id="hushListBox" style="margin-top:12px">
       <summary>Words to always hide</summary>
       <p class="small">One per line: a client's name or nickname, an employer, a street. Each is hidden wherever it appears as a whole word, in any capitals. The list stays in this tab, and goes into a saved key if you save one.</p>
@@ -162,6 +166,7 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
     <textarea id="hushOut" readonly aria-label="Swapped text" spellcheck="false"></textarea>
     <div class="row" style="margin-top:8px"><button id="hushCopy" type="button" class="teal" disabled>Copy swapped text</button><span id="hushCopyMsg" class="small"></span></div>
     <div id="hushCheck"></div>
+    <div id="attOut"></div>
   </section>
 
   <section class="card">

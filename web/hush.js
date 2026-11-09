@@ -148,7 +148,11 @@ const PDFSwapHush = (() => {
     for (const run of personRuns(text, found, other)) {
       // one word alone ("Hi Sarah,", "the Quillfeathers") is a name word, found below, not a person
       if (!run.last) { if (!found.has(norm(run.first))) singles.push(run.first); continue; }
-      const id = norm(run.first) + "|" + norm(run.last || "");
+      let id = norm(run.first) + "|" + norm(run.last || "");
+      // "Quillfeather Marisol", as a file or folder name often puts it, is "Marisol Quillfeather"
+      const flipped = norm(run.last) + "|" + norm(run.first);
+      if (!people.some((p) => p.id === id) && !draft.entries.some((e) => e.person === id) &&
+          (people.some((p) => p.id === flipped) || draft.entries.some((e) => e.person === flipped))) id = flipped;
       let person = people.find((p) => p.id === id);
       if (!person) {
         // "Marisol J Quillfeather" and "Marisol Quillfeather" are one person
@@ -173,7 +177,8 @@ const PDFSwapHush = (() => {
     for (const w of singles) if (!plan.some((p) => norm(p.value) === norm(w))) take("name", w, [], "name");
     // a name word the finder found that no run explained
     for (const it of items.values()) {
-      if (it.kind !== "name" || !it.checked || plan.some((p) => norm(p.value) === norm(it.display))) continue;
+      // a lone initial is never hidden by itself: it would hide every "J" in the text
+      if (it.kind !== "name" || !it.checked || it.display.length < 2 || plan.some((p) => norm(p.value) === norm(it.display))) continue;
       take("name", it.display, [...(it.forms ? it.forms.keys() : [])], "name");
     }
     // a birth date in any common form, after the words that say it is one
@@ -254,6 +259,22 @@ const PDFSwapHush = (() => {
       if (n > (key.counters[base] || 0)) key.counters[base] = n;
     }
     return { text: hushed, count, leaks: leaks(hushed, on) };
+  }
+
+  /** The swaps a file needs, for the folder swap's own engines (PDF, Word, Excel, PowerPoint):
+   * each place a ticked entry matches in the file's text, as the exact characters printed there,
+   * with its tag. An engine replaces exact text, so "481 27 3306" and "481-27-3306" are each a
+   * row of their own. Longest first, so a full name is replaced before its first name. */
+  function rowsFor(text, plan) {
+    const on = plan.filter((p) => p.checked);
+    const m = matcher(on);
+    const rows = new Map();
+    if (m) for (const hit of String(text).matchAll(m.rx)) {
+      const k = hit.slice(1, 1 + m.pairs.length).findIndex((g) => g !== undefined);
+      const find = hit[0], replace = "[" + m.pairs[k].e.tag + "]";
+      if (!rows.has(find)) rows.set(find, { find, replace, label: m.pairs[k].e.kind, tag: m.pairs[k].e.tag });
+    }
+    return [...rows.values()].sort((a, b) => b.find.length - a.find.length).map((r, i) => ({ id: i + 1, ...r }));
   }
 
   /** Every hidden value still in the hushed text (none, when hushing worked), and anything else
@@ -338,7 +359,7 @@ const PDFSwapHush = (() => {
     return { key: { entries: got.entries || [], counters: got.counters || {} }, alwaysHide: got.alwaysHide || [] };
   }
 
-  return { TAG, newKey, find, hush, leaks, restore, renameTag, lock, unlock, personRuns };
+  return { TAG, newKey, find, hush, rowsFor, leaks, restore, renameTag, lock, unlock, personRuns };
 })();
 globalThis.PDFSwapHush = PDFSwapHush;
 if (typeof module !== "undefined") module.exports = PDFSwapHush;

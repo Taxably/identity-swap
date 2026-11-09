@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = ROOT
 WEB = os.path.join(TOOL, "web")
 PAGE = os.path.join(TOOL, "identity-swap.html")
-APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "docling.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js", "hush.js", "hushui.js"]
+APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "docling.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js", "hush.js", "attach.js", "hushui.js"]
 
 
 def _read(path):

@@ -136,6 +136,23 @@ AI the client.
 3. Paste the AI's answer back. Every tag the key knows becomes the real value again. A tag the AI
    invented is listed and left as written, never guessed.
 
+### Attachments
+
+Attach PDF, Word, Excel, PowerPoint or text files beside the message. The message and every
+attachment, file names included, are read as one, so `[PERSON-1]` in the email is `[PERSON-1]` in
+the W-2 and in the wage sheet. Each attachment comes back as a file to download and attach:
+
+- Word, Excel and PowerPoint: swapped inside the file's own parts. Tables, formulas, numbers and
+  layout stay as they were.
+- PDF: swapped in place, in the PDF's own fonts, when every tag can be drawn there and the
+  engine's checks pass. Most PDFs embed only the letters they print, so a font often has no `[`;
+  then the PDF comes back as a text PDF of its pages, set in Helvetica, that says on every page it
+  is text only. An AI reads a PDF's text either way.
+- The file name is swapped too: `Quillfeather W2.pdf` becomes `[PERSON-1-LAST] W2 (swapped).pdf`.
+- Every file is read back after it is made and searched for every hidden value. One that still
+  holds any is not offered.
+- Photos and scans are refused here, with a pointer to the folder swap, which reads them.
+
 How it finds things: the same rules the folder swap uses, plus a reading of names in running
 text (a first name followed by a surname, a name after a label such as "Spouse:" or a greeting
 such as "Hi Sarah,", a hyphenated or Irish surname), birth dates after "born" or "DOB", and
@@ -162,7 +179,7 @@ What it does not do, plainly:
   or a small town can point to a person.
 - Swapping text does not by itself make a firm compliant with any rule on client data (IRC 7216, the
   FTC Safeguards Rule, or a state law). It supports the safeguards they expect.
-- Photos, scans and PDFs are not swapped in this mode. Run them through the folder swap first.
+- Photos and scans are not swapped in this mode. Run them through the folder swap first.
 
 ## Check it yourself
 
@@ -198,6 +215,7 @@ Read the report's notes. Three of them mean the copy may still hold something of
 | `web/check.js` | Draws each PDF page before and after and compares them |
 | `web/ui.js` | The page's three steps |
 | `web/hush.js` | Swaps text into tags, checks the result, restores an answer, and locks or opens a saved key |
+| `web/attach.js` | Swaps a PDF, Word, Excel, PowerPoint or text attachment with the message's tags, and reads it back to check |
 | `web/hushui.js` | The page's text swap mode and the "Check it yourself" panel |
 | `web/data.js` | PDF encoding tables and standard font widths |
 | `web/names.js`, `web/make_names.py` | First names and surnames, and the script that writes them from the Census Bureau and SSA tables |

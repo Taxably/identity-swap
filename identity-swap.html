@@ -97,6 +97,9 @@ textarea { font: inherit; font-size: 14px; width: 100%; min-height: 150px; borde
 textarea.mono { font-family: var(--mono); font-size: 13px; }
 textarea[readonly] { background: #FCFBF8; }
 textarea:focus-visible { outline: 3px solid #7CC4C2; outline-offset: 2px; }
+.att { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; margin-top: 8px; background: #FCFBF8; }
+.att .name { font-weight: 700; overflow-wrap: anywhere; }
+.att .grow { flex: 1 1 260px; min-width: 0; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
 code.rules { display: block; font-family: var(--mono); font-size: 12px; background: #F2F0EA; border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; color: var(--ink-2); }
@@ -147,7 +150,8 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
   <section class="card">
     <div class="step"><div class="num">1</div><div><h2>Paste what you want to ask about</h2><p class="sub">A client email, a note, a document's text. Names, SSNs, EINs, addresses, phones, emails, account and ID numbers and birth dates become tags such as [PERSON-1] and [SSN-1]. The same value keeps the same tag in every paste.</p></div></div>
     <textarea id="hushIn" aria-label="Text to swap" placeholder="Paste text here" spellcheck="false"></textarea>
-    <div class="row" style="margin-top:8px"><label class="small" for="hushFile">Or open a text file (.txt, .csv, .eml, .md):</label><input id="hushFile" type="file" accept=".txt,.csv,.eml,.md,.text,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
+    <div class="row" style="margin-top:10px"><label class="small" for="hushFile">Attach files to swap the same way (PDF, Word, Excel, PowerPoint, text):</label><input id="hushFile" type="file" multiple accept=".pdf,.docx,.docm,.dotx,.xlsx,.xlsm,.xltx,.pptx,.pptm,.potx,.ppsx,.txt,.csv,.eml,.md,application/pdf,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
+    <div id="attList"></div>
     <details id="hushListBox" style="margin-top:12px">
       <summary>Words to always hide</summary>
       <p class="small">One per line: a client's name or nickname, an employer, a street. Each is hidden wherever it appears as a whole word, in any capitals. The list stays in this tab, and goes into a saved key if you save one.</p>
@@ -162,6 +166,7 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
     <textarea id="hushOut" readonly aria-label="Swapped text" spellcheck="false"></textarea>
     <div class="row" style="margin-top:8px"><button id="hushCopy" type="button" class="teal" disabled>Copy swapped text</button><span id="hushCopyMsg" class="small"></span></div>
     <div id="hushCheck"></div>
+    <div id="attOut"></div>
   </section>
 
   <section class="card">
@@ -10269,7 +10274,11 @@ const PDFSwapHush = (() => {
     for (const run of personRuns(text, found, other)) {
       // one word alone ("Hi Sarah,", "the Quillfeathers") is a name word, found below, not a person
       if (!run.last) { if (!found.has(norm(run.first))) singles.push(run.first); continue; }
-      const id = norm(run.first) + "|" + norm(run.last || "");
+      let id = norm(run.first) + "|" + norm(run.last || "");
+      // "Quillfeather Marisol", as a file or folder name often puts it, is "Marisol Quillfeather"
+      const flipped = norm(run.last) + "|" + norm(run.first);
+      if (!people.some((p) => p.id === id) && !draft.entries.some((e) => e.person === id) &&
+          (people.some((p) => p.id === flipped) || draft.entries.some((e) => e.person === flipped))) id = flipped;
       let person = people.find((p) => p.id === id);
       if (!person) {
         // "Marisol J Quillfeather" and "Marisol Quillfeather" are one person
@@ -10294,7 +10303,8 @@ const PDFSwapHush = (() => {
     for (const w of singles) if (!plan.some((p) => norm(p.value) === norm(w))) take("name", w, [], "name");
     // a name word the finder found that no run explained
     for (const it of items.values()) {
-      if (it.kind !== "name" || !it.checked || plan.some((p) => norm(p.value) === norm(it.display))) continue;
+      // a lone initial is never hidden by itself: it would hide every "J" in the text
+      if (it.kind !== "name" || !it.checked || it.display.length < 2 || plan.some((p) => norm(p.value) === norm(it.display))) continue;
       take("name", it.display, [...(it.forms ? it.forms.keys() : [])], "name");
     }
     // a birth date in any common form, after the words that say it is one
@@ -10375,6 +10385,22 @@ const PDFSwapHush = (() => {
       if (n > (key.counters[base] || 0)) key.counters[base] = n;
     }
     return { text: hushed, count, leaks: leaks(hushed, on) };
+  }
+
+  /** The swaps a file needs, for the folder swap's own engines (PDF, Word, Excel, PowerPoint):
+   * each place a ticked entry matches in the file's text, as the exact characters printed there,
+   * with its tag. An engine replaces exact text, so "481 27 3306" and "481-27-3306" are each a
+   * row of their own. Longest first, so a full name is replaced before its first name. */
+  function rowsFor(text, plan) {
+    const on = plan.filter((p) => p.checked);
+    const m = matcher(on);
+    const rows = new Map();
+    if (m) for (const hit of String(text).matchAll(m.rx)) {
+      const k = hit.slice(1, 1 + m.pairs.length).findIndex((g) => g !== undefined);
+      const find = hit[0], replace = "[" + m.pairs[k].e.tag + "]";
+      if (!rows.has(find)) rows.set(find, { find, replace, label: m.pairs[k].e.kind, tag: m.pairs[k].e.tag });
+    }
+    return [...rows.values()].sort((a, b) => b.find.length - a.find.length).map((r, i) => ({ id: i + 1, ...r }));
   }
 
   /** Every hidden value still in the hushed text (none, when hushing worked), and anything else
@@ -10459,10 +10485,172 @@ const PDFSwapHush = (() => {
     return { key: { entries: got.entries || [], counters: got.counters || {} }, alwaysHide: got.alwaysHide || [] };
   }
 
-  return { TAG, newKey, find, hush, leaks, restore, renameTag, lock, unlock, personRuns };
+  return { TAG, newKey, find, hush, rowsFor, leaks, restore, renameTag, lock, unlock, personRuns };
 })();
 globalThis.PDFSwapHush = PDFSwapHush;
 if (typeof module !== "undefined") module.exports = PDFSwapHush;
+
+/* ---- attach.js ---- */
+/* Identity Swap: attachments for an AI chat. A PDF, Word, Excel, PowerPoint or text file in, the
+ * same file out with every personal value replaced by the tag the text swap gave it, so the
+ * attachment and the message read as one: [PERSON-1] in the email is [PERSON-1] in the W-2.
+ *
+ * Word, Excel and PowerPoint files are changed inside their own parts by the folder swap's Office
+ * engine: formulas, numbers, tables and layout stay. A PDF is first changed in place by the folder
+ * swap's PDF engine, in the PDF's own fonts, and kept only when every value was replaced and the
+ * engine's checks pass (nothing of the original left, no word running into the next). When it
+ * cannot be (a font that lacks "[" or "]", which most embedded fonts do, or a tag too wide for
+ * where its value is printed), the PDF comes back as a text PDF: its text, page by page, with the
+ * tags, set in Helvetica. An AI reads a PDF's text either way; the text PDF says on each page
+ * that it is one.
+ *
+ * Every file is read back after it is made and searched for every value hidden. A file that still
+ * holds one is never offered. Nothing here touches the network.
+ */
+const PDFSwapAttach = (() => {
+  "use strict";
+  const F = () => globalThis.PDFSwapFolder, H = () => globalThis.PDFSwapHush, E = () => globalThis.PDFSwapEngine, P = () => globalThis.PDFSwapPII;
+
+  /** What a file is and what it says. `problem` is set when it cannot be swapped here. */
+  async function read(name, bytes) {
+    const kind = F().kindOf(name);
+    const att = { name, bytes, kind, text: "", pages: [], problem: null, status: null };
+    if (!/^(pdf|office|text)$/.test(kind)) {
+      att.problem = kind === "picture" ? "a picture: photos and scans are read by the folder swap, which paints realistic stand-ins over them" : "not a kind of file this can change (PDF, Word, Excel, PowerPoint or a text file)";
+      return att;
+    }
+    const file = { path: name, size: bytes.length, read: async () => bytes };
+    const { profiles, status } = await F().analyze([file], {});
+    att.status = status;
+    const st = status.get(name) || {};
+    if (st.state !== "ok") {
+      att.problem = st.state === "scan" ? "its pages are pictures (a scan), with no text to swap; run it through the folder swap, which reads scans" : st.why || "it could not be read";
+      return att;
+    }
+    const byPage = new Map();
+    for (const prof of profiles) for (const part of prof.parts) {
+      const k = part.page ?? 0;
+      if (!byPage.has(k)) byPage.set(k, []);
+      byPage.get(k).push(part.text);
+    }
+    att.pages = [...byPage].sort((a, b) => a[0] - b[0]).map(([page, texts]) => ({ page, text: texts.join("\n") }));
+    att.text = att.pages.map((p) => p.text).join("\n");
+    if (!att.text.trim()) att.problem = "no text could be read from it";
+    return att;
+  }
+
+  /** The tagged file's name: its own name with the plan's tags ("Quillfeather W2.pdf" becomes
+   * "[PERSON-1-LAST] W2 (swapped).pdf"), "(swapped)" before the kind. A name written with
+   * underscores is read with spaces and written with underscores again. */
+  function nameFor(att, plan, ext) {
+    const dot = att.name.lastIndexOf(".");
+    const stem = dot > 0 ? att.name.slice(0, dot) : att.name, kind = dot > 0 ? att.name.slice(dot) : "";
+    const under = stem.includes("_") && !stem.includes(" ");
+    let neu = H().hush(under ? stem.replace(/_/g, " ") : stem, plan, H().newKey()).text;
+    if (under) neu = neu.replace(/ /g, "_");
+    return neu + " (swapped)" + (ext || kind);
+  }
+
+  /** The file with every ticked value of `plan` replaced by its tag:
+   * { bytes, name, how: "layout kept" | "text only" | "nothing to swap", count, notes } or
+   * { problem } when no safe copy could be made. */
+  async function swap(att, plan) {
+    if (att.problem) return { problem: att.problem };
+    const rows = H().rowsFor(att.text, plan);
+    if (!rows.length) return { bytes: att.bytes, name: nameFor(att, plan), how: "nothing to swap", count: 0, notes: [] };
+    let made = null;
+    if (att.kind === "pdf") {
+      // the engine swaps word for word: a name of three words becomes its tag and two empty words
+      const padded = rows.map((r) => ({ ...r, replace: r.replace + " ".repeat(r.find.split(" ").length - 1) }));
+      const inPlace = await runEngine(att, padded);
+      if (inPlace.bytes) made = { bytes: inPlace.bytes, how: "layout kept", ext: ".pdf" };
+      else made = { bytes: await textPdf(att, plan), how: "text only", ext: ".pdf", why: inPlace.why };
+    } else if (att.kind === "office") {
+      const got = await runEngine(att, rows);
+      if (!got.bytes) return { problem: "it could not be swapped: " + got.why };
+      made = { bytes: got.bytes, how: "layout kept" };
+    } else {
+      const enc = (att.status.get(att.name) || {}).enc || "utf-8";
+      const text = F().decodeText(att.bytes).text;
+      made = { bytes: F().encodeText(H().hush(text, plan, H().newKey()).text, enc), how: "layout kept" };
+    }
+    // read back: no hidden value may be left anywhere in what is offered
+    const back = await read(att.name, made.bytes);
+    if (back.problem && !back.text) return { problem: "the swapped copy could not be read back to check it (" + back.problem + "), so it is not offered" };
+    const left = H().leaks(back.text, plan.filter((p) => p.checked));
+    const stuck = left.filter((l) => l.tag);
+    if (stuck.length) return { problem: "the swapped copy still held " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ", so it is not offered" };
+    const notes = [];
+    if (made.how === "text only") notes.push("The PDF's own fonts could not show the tags in place (" + made.why + "), so this is a text PDF of its pages: the words are all there, the layout is not.");
+    const still = left.filter((l) => !l.tag);
+    if (still.length) notes.push("Still reads as personal: " + [...new Set(still.map((l) => l.value))].slice(0, 6).join(", ") + ". Add it to the words to always hide, or leave it if it is not.");
+    return { bytes: made.bytes, name: nameFor(att, plan, made.ext), how: made.how, count: rows.length, notes };
+  }
+
+  /** The folder swap's own engine on one file: the swapped bytes, or why not. */
+  async function runEngine(att, rows) {
+    let out = null;
+    const file = { path: att.name, size: att.bytes.length, read: async () => att.bytes };
+    const [r] = await F().run([file], rows, att.status, { include: () => false, write: async (_, b) => { out = b; } });
+    return r && r.result === "swapped" && out ? { bytes: out } : { why: (r && r.why) || "the engine did not write it" };
+  }
+
+  // ---------------------------------------------------------------- the text PDF
+  const PAGE = [612, 792], MARGIN = 54, SIZE = 10, LEAD = 13.5;
+  /** The PDF's text, tagged, page by page in Helvetica. Each page of the original starts a page of
+   * its own (and runs on to more when it is long), headed with where it came from. */
+  async function textPdf(att, plan) {
+    const L = globalThis.PDFLib;
+    const doc = await L.PDFDocument.create();
+    const font = await doc.embedFont(L.StandardFonts.Helvetica), bold = await doc.embedFont(L.StandardFonts.HelveticaBold);
+    // a character Helvetica cannot write (outside Windows-1252) is written as "?"
+    const safe = (s) => [...s].map((ch) => { try { font.encodeText(ch); return ch; } catch (e) { return "?"; } }).join("");
+    const width = PAGE[0] - 2 * MARGIN;
+    const wrap = (line) => {
+      const out = [];
+      let cur = "";
+      for (const w of line.split(/(\s+)/)) {
+        if (font.widthOfTextAtSize(cur + w, SIZE) <= width) { cur += w; continue; }
+        if (cur.trim()) out.push(cur.trimEnd());
+        cur = w.trimStart();
+        // one word wider than the page is cut where it must be
+        while (font.widthOfTextAtSize(cur, SIZE) > width) {
+          let k = cur.length;
+          while (k > 1 && font.widthOfTextAtSize(cur.slice(0, k), SIZE) > width) k--;
+          out.push(cur.slice(0, k)); cur = cur.slice(k);
+        }
+      }
+      out.push(cur.trimEnd());
+      return out;
+    };
+    const total = att.pages.length;
+    for (const pg of att.pages) {
+      const tagged = H().hush(pg.text, plan, H().newKey()).text;
+      const lines = tagged.split(/\r\n|\r|\n/).map(safe).flatMap(wrap);
+      let page = null, y = 0, cont = false;
+      const start = () => {
+        page = doc.addPage(PAGE);
+        y = PAGE[1] - MARGIN;
+        page.drawText("Page " + (pg.page + 1) + " of " + total + (cont ? ", continued" : "") + ". Text only: personal details are replaced by tags.", { x: MARGIN, y, size: 8.5, font: bold, color: L.rgb(0.31, 0.37, 0.47) });
+        y -= LEAD * 1.8;
+        cont = true;
+      };
+      start();
+      for (const line of lines) {
+        if (y < MARGIN) start();
+        if (line) page.drawText(line, { x: MARGIN, y, size: SIZE, font, color: L.rgb(0.08, 0.13, 0.24) });
+        y -= LEAD;
+      }
+    }
+    // nothing about the original in the file's own details: no title, author or dates of its
+    doc.setProducer("Identity Swap"); doc.setCreator("Identity Swap");
+    return await doc.save({ useObjectStreams: false });
+  }
+
+  return { read, swap, nameFor, textPdf };
+})();
+globalThis.PDFSwapAttach = PDFSwapAttach;
+if (typeof module !== "undefined") module.exports = PDFSwapAttach;
 
 /* ---- hushui.js ---- */
 /* Identity Swap: the page's second mode. Swap text for an AI chat, restore the answer, keep or
@@ -10499,15 +10687,61 @@ if (typeof module !== "undefined") module.exports = PDFSwapHush;
   // ------------------------------------------------------------------ hushing
   const source = $("hushIn");
   source.addEventListener("input", () => { clearTimeout(S.timer); S.timer = setTimeout(run, 250); });
+  // attachments: read once when added, swapped again whenever the plan changes
+  const A = PDFSwapAttach;
+  S.atts = [];
   $("hushFile").addEventListener("change", async (e) => {
-    const f = e.target.files[0];
+    const files = [...e.target.files];
     e.target.value = "";
-    if (!f) return;
-    if (f.size > 2e6) { fill($("hushFileMsg"), "That file is over 2 MB; paste the part you need instead."); return; }
-    source.value = await f.text();
-    fill($("hushFileMsg"), "Read " + f.name + " in this tab.");
+    for (const f of files) {
+      if (S.atts.some((a) => a.att.name === f.name)) continue;
+      if (f.size > 50e6) { S.atts.push({ att: { name: f.name, problem: "over 50 MB; swap it with the folder swap, which writes one file at a time" }, out: null }); continue; }
+      fill($("hushFileMsg"), "Reading " + f.name);
+      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer())).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
+      S.atts.push({ att, out: null });
+    }
+    fill($("hushFileMsg"));
     run();
   });
+  function renderAtts() {
+    fill($("attList"), S.atts.map((a, i) => el("div", { class: "att" },
+      el("div", { class: "grow" }, el("span", { class: "name", text: a.att.name }),
+        el("div", { class: "small", text: a.att.problem ? "Cannot be swapped here: " + a.att.problem + "." : a.att.kind === "pdf" ? plural(a.att.pages.length, "page") + " of text read" : "Text read" })),
+      el("button", { type: "button", class: "link", onclick: () => { S.atts.splice(i, 1); run(); } }, "Remove"))));
+    const ready = S.atts.filter((a) => !a.att.problem);
+    fill($("attOut"), ready.length ? [el("h2", { style: "margin:18px 0 4px" }, "Swapped attachments"),
+      el("p", { class: "small", text: "Each file is read back after it is made and searched for every hidden value; one that still holds any is not offered." }),
+      ...ready.map((a) => {
+        const o = a.out;
+        const badge = !o ? el("span", { class: "count", text: "swapping" }) : o.problem ? el("span", { class: "count bad", text: "not offered" })
+          : el("span", { class: "count" + (o.how === "text only" ? " warn" : ""), text: o.how === "text only" ? "text PDF" : o.how === "layout kept" ? "layout kept" : "nothing to swap" });
+        return el("div", { class: "att" },
+          el("div", { class: "grow" }, el("span", { class: "name", text: o && o.name ? o.name : a.att.name }), " ", badge,
+            o && o.problem ? el("div", { class: "small result-bad", text: o.problem }) : null,
+            o && o.count ? el("div", { class: "small", text: plural(o.count, "value") + " swapped for tags" }) : null,
+            o && o.notes ? o.notes.map((n) => el("div", { class: "small", text: n })) : null),
+          o && o.bytes ? el("button", { type: "button", class: "teal", onclick: () => { commit(); save(o.bytes, o.name); } }, "Download swapped file") : null);
+      })] : null);
+  }
+  function save(bytes, name) {
+    const link = el("a", { href: URL.createObjectURL(new Blob([bytes])), download: name });
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  }
+  // each plan swaps every attachment again; a newer plan makes an older run's results stale
+  let generation = 0;
+  async function swapAtts() {
+    const mine = ++generation;
+    for (const a of S.atts) a.out = null;
+    renderAtts();
+    for (const a of S.atts) {
+      if (a.att.problem) continue;
+      const out = await A.swap(a.att, S.plan).catch((err) => ({ problem: "it could not be swapped (" + err.message + ")" }));
+      if (mine !== generation) return;
+      a.out = out;
+      renderAtts();
+    }
+  }
   $("hushList").addEventListener("input", (e) => {
     S.alwaysHide = e.target.value.split(/\r?\n/).map((w) => w.trim()).filter(Boolean);
     clearTimeout(S.timer); S.timer = setTimeout(run, 250);
@@ -10515,15 +10749,19 @@ if (typeof module !== "undefined") module.exports = PDFSwapHush;
 
   function run() {
     const text = source.value;
-    if (!text.trim()) { S.plan = []; S.result = null; render(); return; }
-    S.plan = H.find(text, { key: S.key, alwaysHide: S.alwaysHide });
+    // the message and every attachment (its name too) are read as one, so a person has one tag
+    const all = [text, ...S.atts.filter((a) => !a.att.problem).flatMap((a) => [a.att.name.replace(/_/g, " ").replace(/\.[^.]+$/, ""), a.att.text])].join("\n\n");
+    if (!all.trim()) { S.plan = []; S.result = null; render(); renderAtts(); return; }
+    S.plan = H.find(all, { key: S.key, alwaysHide: S.alwaysHide });
     for (const p of S.plan) if (S.off.has(p.value.toUpperCase())) p.checked = false;
-    // a preview: the key grows only when the hushed text is copied or an answer is restored
-    S.result = H.hush(text, S.plan, clone(S.key));
+    // a preview: the key grows only when the swapped text is copied, a file is downloaded or an
+    // answer is restored
+    S.result = text.trim() ? H.hush(text, S.plan, clone(S.key)) : null;
     render();
+    clearTimeout(S.attTimer); S.attTimer = setTimeout(swapAtts, 300);
   }
   function commit() {
-    if (!S.result) return;
+    if (!S.plan.length) return;
     H.hush(source.value, S.plan, S.key);
     renderKey();
   }
@@ -10557,7 +10795,7 @@ if (typeof module !== "undefined") module.exports = PDFSwapHush;
     });
     fill($("hushTable"), plan.length ? el("div", { class: "tablewrap" }, el("table", null,
       el("thead", null, el("tr", null, el("th", { text: "Hide" }), el("th", { text: "Kind" }), el("th", { text: "Found" }), el("th", { text: "Tag the AI sees" }), el("th", { text: "" }))),
-      el("tbody", null, rows))) : el("p", { class: "small", text: source.value.trim() ? "Nothing personal found. Read the text before you send it; add anything missed to the list of words to always hide." : "Paste text above to see what will be hidden." }));
+      el("tbody", null, rows))) : el("p", { class: "small", text: source.value.trim() ? "Nothing personal found. Read the text before you send it; add anything missed to the list of words to always hide." : "Paste text or attach files above to see what will be hidden." }));
     // the hushed text searched again: no hidden value may be left, and anything that still
     // reads as personal is shown with a way to hide it
     const left = r ? r.leaks : [];

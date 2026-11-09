@@ -63,7 +63,7 @@ DL_WASM = ("onnxruntime-web/dist/ort-wasm-simd-threaded.wasm", "71aef04959c5c1b6
 DL_DET = ("ch_PP-OCRv5_mobile_det.onnx", "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae")
 DL_REC = ("en_PP-OCRv5_rec_mobile_infer.onnx", "c3461add59bb4323ecba96a492ab75e06dda42467c9e3d0c18db5d1d21924be8")
 DL_KEYS = ("ppocrv5_en_dict.txt", "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6")
-APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "docling.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js", "hush.js", "hushui.js"]
+APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "docling.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js", "hush.js", "attach.js", "hushui.js"]
 
 
 def read_pinned(libs: str, rel: str, digest: str, binary: bool = False):

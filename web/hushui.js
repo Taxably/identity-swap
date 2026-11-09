@@ -32,15 +32,61 @@
   // ------------------------------------------------------------------ hushing
   const source = $("hushIn");
   source.addEventListener("input", () => { clearTimeout(S.timer); S.timer = setTimeout(run, 250); });
+  // attachments: read once when added, swapped again whenever the plan changes
+  const A = PDFSwapAttach;
+  S.atts = [];
   $("hushFile").addEventListener("change", async (e) => {
-    const f = e.target.files[0];
+    const files = [...e.target.files];
     e.target.value = "";
-    if (!f) return;
-    if (f.size > 2e6) { fill($("hushFileMsg"), "That file is over 2 MB; paste the part you need instead."); return; }
-    source.value = await f.text();
-    fill($("hushFileMsg"), "Read " + f.name + " in this tab.");
+    for (const f of files) {
+      if (S.atts.some((a) => a.att.name === f.name)) continue;
+      if (f.size > 50e6) { S.atts.push({ att: { name: f.name, problem: "over 50 MB; swap it with the folder swap, which writes one file at a time" }, out: null }); continue; }
+      fill($("hushFileMsg"), "Reading " + f.name);
+      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer())).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
+      S.atts.push({ att, out: null });
+    }
+    fill($("hushFileMsg"));
     run();
   });
+  function renderAtts() {
+    fill($("attList"), S.atts.map((a, i) => el("div", { class: "att" },
+      el("div", { class: "grow" }, el("span", { class: "name", text: a.att.name }),
+        el("div", { class: "small", text: a.att.problem ? "Cannot be swapped here: " + a.att.problem + "." : a.att.kind === "pdf" ? plural(a.att.pages.length, "page") + " of text read" : "Text read" })),
+      el("button", { type: "button", class: "link", onclick: () => { S.atts.splice(i, 1); run(); } }, "Remove"))));
+    const ready = S.atts.filter((a) => !a.att.problem);
+    fill($("attOut"), ready.length ? [el("h2", { style: "margin:18px 0 4px" }, "Swapped attachments"),
+      el("p", { class: "small", text: "Each file is read back after it is made and searched for every hidden value; one that still holds any is not offered." }),
+      ...ready.map((a) => {
+        const o = a.out;
+        const badge = !o ? el("span", { class: "count", text: "swapping" }) : o.problem ? el("span", { class: "count bad", text: "not offered" })
+          : el("span", { class: "count" + (o.how === "text only" ? " warn" : ""), text: o.how === "text only" ? "text PDF" : o.how === "layout kept" ? "layout kept" : "nothing to swap" });
+        return el("div", { class: "att" },
+          el("div", { class: "grow" }, el("span", { class: "name", text: o && o.name ? o.name : a.att.name }), " ", badge,
+            o && o.problem ? el("div", { class: "small result-bad", text: o.problem }) : null,
+            o && o.count ? el("div", { class: "small", text: plural(o.count, "value") + " swapped for tags" }) : null,
+            o && o.notes ? o.notes.map((n) => el("div", { class: "small", text: n })) : null),
+          o && o.bytes ? el("button", { type: "button", class: "teal", onclick: () => { commit(); save(o.bytes, o.name); } }, "Download swapped file") : null);
+      })] : null);
+  }
+  function save(bytes, name) {
+    const link = el("a", { href: URL.createObjectURL(new Blob([bytes])), download: name });
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  }
+  // each plan swaps every attachment again; a newer plan makes an older run's results stale
+  let generation = 0;
+  async function swapAtts() {
+    const mine = ++generation;
+    for (const a of S.atts) a.out = null;
+    renderAtts();
+    for (const a of S.atts) {
+      if (a.att.problem) continue;
+      const out = await A.swap(a.att, S.plan).catch((err) => ({ problem: "it could not be swapped (" + err.message + ")" }));
+      if (mine !== generation) return;
+      a.out = out;
+      renderAtts();
+    }
+  }
   $("hushList").addEventListener("input", (e) => {
     S.alwaysHide = e.target.value.split(/\r?\n/).map((w) => w.trim()).filter(Boolean);
     clearTimeout(S.timer); S.timer = setTimeout(run, 250);
@@ -48,15 +94,19 @@
 
   function run() {
     const text = source.value;
-    if (!text.trim()) { S.plan = []; S.result = null; render(); return; }
-    S.plan = H.find(text, { key: S.key, alwaysHide: S.alwaysHide });
+    // the message and every attachment (its name too) are read as one, so a person has one tag
+    const all = [text, ...S.atts.filter((a) => !a.att.problem).flatMap((a) => [a.att.name.replace(/_/g, " ").replace(/\.[^.]+$/, ""), a.att.text])].join("\n\n");
+    if (!all.trim()) { S.plan = []; S.result = null; render(); renderAtts(); return; }
+    S.plan = H.find(all, { key: S.key, alwaysHide: S.alwaysHide });
     for (const p of S.plan) if (S.off.has(p.value.toUpperCase())) p.checked = false;
-    // a preview: the key grows only when the hushed text is copied or an answer is restored
-    S.result = H.hush(text, S.plan, clone(S.key));
+    // a preview: the key grows only when the swapped text is copied, a file is downloaded or an
+    // answer is restored
+    S.result = text.trim() ? H.hush(text, S.plan, clone(S.key)) : null;
     render();
+    clearTimeout(S.attTimer); S.attTimer = setTimeout(swapAtts, 300);
   }
   function commit() {
-    if (!S.result) return;
+    if (!S.plan.length) return;
     H.hush(source.value, S.plan, S.key);
     renderKey();
   }
@@ -90,7 +140,7 @@
     });
     fill($("hushTable"), plan.length ? el("div", { class: "tablewrap" }, el("table", null,
       el("thead", null, el("tr", null, el("th", { text: "Hide" }), el("th", { text: "Kind" }), el("th", { text: "Found" }), el("th", { text: "Tag the AI sees" }), el("th", { text: "" }))),
-      el("tbody", null, rows))) : el("p", { class: "small", text: source.value.trim() ? "Nothing personal found. Read the text before you send it; add anything missed to the list of words to always hide." : "Paste text above to see what will be hidden." }));
+      el("tbody", null, rows))) : el("p", { class: "small", text: source.value.trim() ? "Nothing personal found. Read the text before you send it; add anything missed to the list of words to always hide." : "Paste text or attach files above to see what will be hidden." }));
     // the hushed text searched again: no hidden value may be left, and anything that still
     // reads as personal is shown with a way to hide it
     const left = r ? r.leaks : [];
