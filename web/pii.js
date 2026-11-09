@@ -1423,7 +1423,16 @@ const PDFSwapPII = (() => {
     }).join("/");
   }
 
-  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, lists: { FIRST, LAST, STREET } };
+  /** A word a person's name could be by itself: on the name lists and not also an everyday English
+   * word ("Marisol" is, "Grace" and "Review" are not). The hush step uses it to read a name in
+   * running text that no folder name vouches for. */
+  const plainName = (w) => inLists(w) && !WORDLIKE.has(w.toLowerCase());
+  /** On the first-name lists, and on the surname lists: each alone is weak evidence in running
+   * text, a first name followed by a surname is a person. */
+  const firstName = (w) => FIRST_SET.has(w.toLowerCase());
+  const surname = (w) => LAST_SET.has(w.toLowerCase());
+
+  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, plainName, firstName, surname, lists: { FIRST, LAST, STREET } };
 })();
 globalThis.PDFSwapPII = PDFSwapPII;
 if (typeof module !== "undefined") module.exports = PDFSwapPII;

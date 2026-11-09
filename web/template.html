@@ -90,6 +90,16 @@ fieldset.choice { border: 1px solid var(--line); border-radius: 10px; padding: 1
 fieldset.choice legend { font-weight: 700; color: var(--ink-2); padding: 0 6px; }
 fieldset.choice label { margin: 4px 0; }
 footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
+.modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 18px; }
+.modes button { background: var(--surface); color: var(--ink-2); border: 1px solid var(--line); }
+.modes button[aria-selected="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+textarea { font: inherit; font-size: 14px; width: 100%; min-height: 150px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fff; color: var(--ink); resize: vertical; }
+textarea.mono { font-family: var(--mono); font-size: 13px; }
+textarea[readonly] { background: #FCFBF8; }
+textarea:focus-visible { outline: 3px solid #7CC4C2; outline-offset: 2px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+code.rules { display: block; font-family: var(--mono); font-size: 12px; background: #F2F0EA; border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; color: var(--ink-2); }
 @media (max-width: 640px) { .wrap { padding: 18px 16px 48px; } h1 { font-size: 23px; } .card { padding: 16px; } }
 </style>
 </head>
@@ -106,6 +116,12 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
     </span>
   </header>
 
+  <nav class="modes" role="tablist" aria-label="What to do">
+    <button type="button" role="tab" data-mode="swap" aria-selected="true">Swap a client folder</button>
+    <button type="button" role="tab" data-mode="hush" aria-selected="false">Hush text for an AI chat</button>
+  </nav>
+
+  <div id="swapMode">
   <section class="card" id="step1">
     <div class="step"><div class="num">1</div><div><h2>Choose the client folder</h2><p class="sub">Every file is read in this tab: PDFs, spreadsheets, Word and PowerPoint files, text files, zip archives, scans and photos. A 3 GB folder is fine.</p></div></div>
     <div class="drop" id="drop">
@@ -124,6 +140,72 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
   <section class="card locked" id="step3">
     <div class="step"><div class="num">3</div><div><h2>Make the copy</h2><p class="sub">Your folder is not touched. The copy is written where you choose, under the swapped names.</p></div></div>
     <div id="runOut"></div>
+  </section>
+  </div>
+
+  <div id="hushMode" hidden>
+  <section class="card">
+    <div class="step"><div class="num">1</div><div><h2>Paste what you want to ask about</h2><p class="sub">A client email, a note, a document's text. Names, SSNs, EINs, addresses, phones, emails, account and ID numbers and birth dates become tags such as [PERSON-1] and [SSN-1]. The same value keeps the same tag in every paste.</p></div></div>
+    <textarea id="hushIn" aria-label="Text to hush" placeholder="Paste text here" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px"><label class="small" for="hushFile">Or open a text file (.txt, .csv, .eml, .md):</label><input id="hushFile" type="file" accept=".txt,.csv,.eml,.md,.text,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
+    <details id="hushListBox" style="margin-top:12px">
+      <summary>Words to always hide</summary>
+      <p class="small">One per line: a client's name or nickname, an employer, a street. Each is hidden wherever it appears as a whole word, in any capitals. The list stays in this tab, and goes into a saved key if you save one.</p>
+      <textarea id="hushList" class="mono" aria-label="Words to always hide" style="min-height:80px" spellcheck="false"></textarea>
+    </details>
+  </section>
+
+  <section class="card">
+    <div class="step"><div class="num">2</div><div><h2>Check what is hidden, then copy</h2><p class="sub">Untick anything that should stay. Rename a tag if it helps the AI, for example [PERSON-2] to [SPOUSE]. Finding is a safety net, not a guarantee: read the hushed text before you send it.</p></div></div>
+    <div id="hushTable"></div>
+    <div class="row" style="margin:14px 0 6px"><h2 style="margin:0">Hushed text</h2><span id="hushCount" class="small"></span></div>
+    <textarea id="hushOut" readonly aria-label="Hushed text" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px"><button id="hushCopy" type="button" class="teal" disabled>Copy hushed text</button><span id="hushCopyMsg" class="small"></span></div>
+    <div id="hushCheck"></div>
+  </section>
+
+  <section class="card">
+    <div class="step"><div class="num">3</div><div><h2>Restore the AI's answer</h2><p class="sub">Paste the answer. Every tag this tab's key knows becomes the real value again, here, in this tab.</p></div></div>
+    <div class="pair">
+      <div><textarea id="restoreIn" aria-label="The AI's answer" placeholder="Paste the AI's answer here" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:8px"><button id="restorePaste" type="button" class="secondary">Paste from clipboard</button></div></div>
+      <div><textarea id="restoreOut" readonly aria-label="The answer with real details" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:8px"><button id="restoreCopy" type="button" class="teal">Copy with real details</button><span id="restoreCopyMsg" class="small"></span></div></div>
+    </div>
+    <div id="restoreMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>The key</h2>
+    <p id="keyState" class="sub"></p>
+    <details style="margin-top:10px">
+      <summary>Save it locked, to restore answers later</summary>
+      <p class="small">The saved key holds the real values, encrypted with your passphrase (AES-256-GCM, PBKDF2-SHA-256, 600,000 rounds). Lose the passphrase and the key cannot be opened. It also carries your words to always hide.</p>
+      <div class="row"><input id="keyPass" type="password" autocomplete="new-password" placeholder="Passphrase, 8 characters or more" aria-label="Passphrase"><input id="keyPass2" type="password" autocomplete="new-password" placeholder="Passphrase again" aria-label="Passphrase again"><button id="keySave" type="button" class="secondary">Save locked key</button></div>
+    </details>
+    <details style="margin-top:10px">
+      <summary>Open a saved key</summary>
+      <div class="row" style="margin-top:8px"><input id="keyOpenPass" type="password" autocomplete="current-password" placeholder="Its passphrase" aria-label="Passphrase of the saved key"><label class="small" for="keyOpen">then choose the .hushkey file:</label><input id="keyOpen" type="file" accept=".hushkey,application/json"></div>
+    </details>
+    <div class="row" style="margin-top:12px"><button id="keyForget" type="button" class="secondary">Forget the key now</button></div>
+    <p id="keyMsg" class="small"></p>
+  </section>
+  </div>
+
+  <section class="card">
+    <h2>Check it yourself</h2>
+    <p class="sub">You should not have to take the page's word for it. These counters watch every request this tab makes.</p>
+    <div class="stats" id="checkCounts"></div>
+    <div class="row"><button id="checkTry" type="button" class="secondary">Try to reach the internet</button><span id="checkMsg" class="small"></span></div>
+    <details style="margin-top:12px">
+      <summary>Three more ways to check</summary>
+      <ol class="small">
+        <li>Turn off Wi-Fi or unplug the network, then reload this page. Everything still works, because everything it needs is inside this one file.</li>
+        <li>Press F12, open the Network tab, and use the page. Nothing is listed but the page itself and the pictures it makes in memory (data: and blob:).</li>
+        <li>Read the rules the page sets for itself, at the top of the file. The browser enforces them, not the page's own code:</li>
+      </ol>
+      <code class="rules" id="checkRules"></code>
+    </details>
   </section>
 
   <footer>

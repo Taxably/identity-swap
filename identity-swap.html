@@ -90,6 +90,16 @@ fieldset.choice { border: 1px solid var(--line); border-radius: 10px; padding: 1
 fieldset.choice legend { font-weight: 700; color: var(--ink-2); padding: 0 6px; }
 fieldset.choice label { margin: 4px 0; }
 footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
+.modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 18px; }
+.modes button { background: var(--surface); color: var(--ink-2); border: 1px solid var(--line); }
+.modes button[aria-selected="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+textarea { font: inherit; font-size: 14px; width: 100%; min-height: 150px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fff; color: var(--ink); resize: vertical; }
+textarea.mono { font-family: var(--mono); font-size: 13px; }
+textarea[readonly] { background: #FCFBF8; }
+textarea:focus-visible { outline: 3px solid #7CC4C2; outline-offset: 2px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+code.rules { display: block; font-family: var(--mono); font-size: 12px; background: #F2F0EA; border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; color: var(--ink-2); }
 @media (max-width: 640px) { .wrap { padding: 18px 16px 48px; } h1 { font-size: 23px; } .card { padding: 16px; } }
 </style>
 </head>
@@ -106,6 +116,12 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
     </span>
   </header>
 
+  <nav class="modes" role="tablist" aria-label="What to do">
+    <button type="button" role="tab" data-mode="swap" aria-selected="true">Swap a client folder</button>
+    <button type="button" role="tab" data-mode="hush" aria-selected="false">Hush text for an AI chat</button>
+  </nav>
+
+  <div id="swapMode">
   <section class="card" id="step1">
     <div class="step"><div class="num">1</div><div><h2>Choose the client folder</h2><p class="sub">Every file is read in this tab: PDFs, spreadsheets, Word and PowerPoint files, text files, zip archives, scans and photos. A 3 GB folder is fine.</p></div></div>
     <div class="drop" id="drop">
@@ -124,6 +140,72 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
   <section class="card locked" id="step3">
     <div class="step"><div class="num">3</div><div><h2>Make the copy</h2><p class="sub">Your folder is not touched. The copy is written where you choose, under the swapped names.</p></div></div>
     <div id="runOut"></div>
+  </section>
+  </div>
+
+  <div id="hushMode" hidden>
+  <section class="card">
+    <div class="step"><div class="num">1</div><div><h2>Paste what you want to ask about</h2><p class="sub">A client email, a note, a document's text. Names, SSNs, EINs, addresses, phones, emails, account and ID numbers and birth dates become tags such as [PERSON-1] and [SSN-1]. The same value keeps the same tag in every paste.</p></div></div>
+    <textarea id="hushIn" aria-label="Text to hush" placeholder="Paste text here" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px"><label class="small" for="hushFile">Or open a text file (.txt, .csv, .eml, .md):</label><input id="hushFile" type="file" accept=".txt,.csv,.eml,.md,.text,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
+    <details id="hushListBox" style="margin-top:12px">
+      <summary>Words to always hide</summary>
+      <p class="small">One per line: a client's name or nickname, an employer, a street. Each is hidden wherever it appears as a whole word, in any capitals. The list stays in this tab, and goes into a saved key if you save one.</p>
+      <textarea id="hushList" class="mono" aria-label="Words to always hide" style="min-height:80px" spellcheck="false"></textarea>
+    </details>
+  </section>
+
+  <section class="card">
+    <div class="step"><div class="num">2</div><div><h2>Check what is hidden, then copy</h2><p class="sub">Untick anything that should stay. Rename a tag if it helps the AI, for example [PERSON-2] to [SPOUSE]. Finding is a safety net, not a guarantee: read the hushed text before you send it.</p></div></div>
+    <div id="hushTable"></div>
+    <div class="row" style="margin:14px 0 6px"><h2 style="margin:0">Hushed text</h2><span id="hushCount" class="small"></span></div>
+    <textarea id="hushOut" readonly aria-label="Hushed text" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px"><button id="hushCopy" type="button" class="teal" disabled>Copy hushed text</button><span id="hushCopyMsg" class="small"></span></div>
+    <div id="hushCheck"></div>
+  </section>
+
+  <section class="card">
+    <div class="step"><div class="num">3</div><div><h2>Restore the AI's answer</h2><p class="sub">Paste the answer. Every tag this tab's key knows becomes the real value again, here, in this tab.</p></div></div>
+    <div class="pair">
+      <div><textarea id="restoreIn" aria-label="The AI's answer" placeholder="Paste the AI's answer here" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:8px"><button id="restorePaste" type="button" class="secondary">Paste from clipboard</button></div></div>
+      <div><textarea id="restoreOut" readonly aria-label="The answer with real details" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:8px"><button id="restoreCopy" type="button" class="teal">Copy with real details</button><span id="restoreCopyMsg" class="small"></span></div></div>
+    </div>
+    <div id="restoreMsg"></div>
+  </section>
+
+  <section class="card">
+    <h2>The key</h2>
+    <p id="keyState" class="sub"></p>
+    <details style="margin-top:10px">
+      <summary>Save it locked, to restore answers later</summary>
+      <p class="small">The saved key holds the real values, encrypted with your passphrase (AES-256-GCM, PBKDF2-SHA-256, 600,000 rounds). Lose the passphrase and the key cannot be opened. It also carries your words to always hide.</p>
+      <div class="row"><input id="keyPass" type="password" autocomplete="new-password" placeholder="Passphrase, 8 characters or more" aria-label="Passphrase"><input id="keyPass2" type="password" autocomplete="new-password" placeholder="Passphrase again" aria-label="Passphrase again"><button id="keySave" type="button" class="secondary">Save locked key</button></div>
+    </details>
+    <details style="margin-top:10px">
+      <summary>Open a saved key</summary>
+      <div class="row" style="margin-top:8px"><input id="keyOpenPass" type="password" autocomplete="current-password" placeholder="Its passphrase" aria-label="Passphrase of the saved key"><label class="small" for="keyOpen">then choose the .hushkey file:</label><input id="keyOpen" type="file" accept=".hushkey,application/json"></div>
+    </details>
+    <div class="row" style="margin-top:12px"><button id="keyForget" type="button" class="secondary">Forget the key now</button></div>
+    <p id="keyMsg" class="small"></p>
+  </section>
+  </div>
+
+  <section class="card">
+    <h2>Check it yourself</h2>
+    <p class="sub">You should not have to take the page's word for it. These counters watch every request this tab makes.</p>
+    <div class="stats" id="checkCounts"></div>
+    <div class="row"><button id="checkTry" type="button" class="secondary">Try to reach the internet</button><span id="checkMsg" class="small"></span></div>
+    <details style="margin-top:12px">
+      <summary>Three more ways to check</summary>
+      <ol class="small">
+        <li>Turn off Wi-Fi or unplug the network, then reload this page. Everything still works, because everything it needs is inside this one file.</li>
+        <li>Press F12, open the Network tab, and use the page. Nothing is listed but the page itself and the pictures it makes in memory (data: and blob:).</li>
+        <li>Read the rules the page sets for itself, at the top of the file. The browser enforces them, not the page's own code:</li>
+      </ol>
+      <code class="rules" id="checkRules"></code>
+    </details>
   </section>
 
   <footer>
@@ -5559,7 +5641,16 @@ const PDFSwapPII = (() => {
     }).join("/");
   }
 
-  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, lists: { FIRST, LAST, STREET } };
+  /** A word a person's name could be by itself: on the name lists and not also an everyday English
+   * word ("Marisol" is, "Grace" and "Review" are not). The hush step uses it to read a name in
+   * running text that no folder name vouches for. */
+  const plainName = (w) => inLists(w) && !WORDLIKE.has(w.toLowerCase());
+  /** On the first-name lists, and on the surname lists: each alone is weak evidence in running
+   * text, a first name followed by a surname is a person. */
+  const firstName = (w) => FIRST_SET.has(w.toLowerCase());
+  const surname = (w) => LAST_SET.has(w.toLowerCase());
+
+  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, plainName, firstName, surname, lists: { FIRST, LAST, STREET } };
 })();
 globalThis.PDFSwapPII = PDFSwapPII;
 if (typeof module !== "undefined") module.exports = PDFSwapPII;
@@ -10025,6 +10116,565 @@ globalThis.PDFSwapCheck = PDFSwapCheck;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   }
+})();
+
+/* ---- hush.js ---- */
+/* Identity Swap: hushing text for an AI chat, and restoring the AI's answer. Rules only.
+ *
+ * A preparer pastes a client email, a note or a document's text. Every name, SSN, EIN, phone,
+ * email, address, account number, ID and birth date is replaced with a tag such as [PERSON-1],
+ * [SSN-1] or [ADDRESS-1]. The hushed text goes to whichever AI the preparer uses; the AI answers
+ * in tags; the answer is pasted back and every tag becomes the real value again.
+ *
+ * The key (which tag stands for which value) lives in this tab's memory and is gone when the tab
+ * closes. It can be saved as a file locked with a passphrase (AES-256-GCM, the key drawn from the
+ * passphrase with PBKDF2-SHA-256), so an answer can be restored days later. Nothing here touches
+ * the network: the page that carries it forbids every request.
+ *
+ * One value keeps one tag for as long as the key is kept, across every paste, so a household
+ * reads the same in every message. The same finding rules the folder swap uses find the values
+ * (pii.js); a person's name in running text is also read from a run of capitalized words that
+ * holds a found name ("Marisol J Quillfeather"). A list of words to always hide (a client's
+ * name, an employer, a nickname) is hidden whether or not anything else finds it.
+ *
+ * Finding is a safety net, not a guarantee: the hushed text is searched again for every value
+ * hidden, and for anything that still reads as personal, before it is offered to copy.
+ */
+const PDFSwapHush = (() => {
+  "use strict";
+  const PII = () => globalThis.PDFSwapPII;
+
+  // which tag each kind of value takes; a state alone is left as it is (it identifies nobody and
+  // a tax answer often turns on it)
+  const TAG = { name: "PERSON", business: "BUSINESS", ssn: "SSN", ssn4: "SSN", ein: "EIN", phone: "PHONE", email: "EMAIL", street: "ADDRESS", unit: "UNIT",
+    city: "CITY", zip: "ZIP", zip4: "ZIP", acct: "ACCOUNT", idnum: "ID", dob: "DOB", iddate: "DATE", custom: "HIDDEN" };
+  // kinds whose digits are the value, however they are spaced or punctuated
+  const DIGITS = new Set(["ssn", "ein", "phone", "acct", "idnum"]);
+  // a word that opens a sentence or a greeting is never part of a name run
+  const OPENER = new Set(("hi hello hey dear thanks thank please regards best sincerely cheers attn attention re fwd fw cc " +
+    "mr mrs ms miss dr mx sir madam").split(" "));
+  const TAG_TEXT = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/;
+  const LOOKS_LIKE_TAG = /\\?\[\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s*\\?\]/g;
+
+  const norm = (v) => String(v).replace(/\s+/g, " ").trim().toUpperCase();
+  const digitsOf = (v) => String(v).replace(/\D/g, "");
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const wordy = (s) => /^[\p{L}\p{N}]/u.test(s) || /[\p{L}\p{N}]$/u.test(s);
+
+  /** An empty key: which tag stands for which value. */
+  function newKey() { return { entries: [], counters: {} }; }
+
+  /** The entry a value already has in the key, or null. Digits-only kinds match on their digits. */
+  function lookup(key, kind, value) {
+    const n = norm(value), d = digitsOf(value);
+    return key.entries.find((e) => norm(e.value) === n || (DIGITS.has(kind) && DIGITS.has(e.kind) && d.length >= 4 && digitsOf(e.value) === d)) || null;
+  }
+  function nextTag(key, base) {
+    const taken = new Set(key.entries.map((e) => e.tag));
+    let n = key.counters[base] || 0, tag;
+    do { tag = base + "-" + ++n; } while (taken.has(tag));
+    key.counters[base] = n;
+    return tag;
+  }
+
+  const DATE = "(?:\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{1,2},?\\s+\\d{4}|\\d{1,2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{4})";
+  const BORN = new RegExp("\\b(?:born(?:\\s+on)?|birth\\s*date|date\\s+of\\s+birth|d\\.?o\\.?b\\.?|birthday)\\s*[:\\-]?\\s*(" + DATE + ")", "gi");
+  const COMPANY = /((?:[\p{Lu}][\p{L}0-9&'’.-]*[ \t]+){1,4}(?:LLC|L\.L\.C\.|PLLC|LLP|Inc\.?|Corp\.?|Co\.|Company|Ltd\.?))(?![\p{L}])/gu;
+
+  // ---------------------------------------------------------------- people in running text
+  const RUN = /[\p{Lu}][\p{L}'’-]*\.?(?:[ \t]+[\p{Lu}][\p{L}'’-]*\.?)*/gu;
+  const isInitial = (w) => /^\p{Lu}\.?$/u.test(w);
+  const SUFFIX = /^(?:Jr|Sr|II|III|IV)\.?$/;
+  const bare = (w) => w.replace(/[.,]$/, "").replace(/['’]s$/i, "");
+  // a label that says a person's name comes next
+  const PERSON_LABEL = /\b(?:taxpayer|spouse|client|dependent|child(?:\s*#?\d+)?|son|daughter|employee|recipient|beneficiary|owner|partner|member|shareholder|preparer|patient|tenant|borrower|contact|attn|attention|from|to|cc|for|with|meet|call|email|ask|tell|text|thanks|thank you|hi|hello|hey|dear)\s*[:,-]?\s*$/i;
+  const GREETING = /\b(?:hi|hello|hey|dear|thanks|thank you)\s*,?\s*$/i;
+
+  /** Each person's name as written in the text. A stretch of capitalized words is a person when
+   * it holds a name already found, or reads first name then surname ("Jennifer Lopez"), or
+   * follows a label that names a person ("Taxpayer: Thomas O'Neil Jr."). A first name alone is a
+   * person after a greeting ("Hi Sarah,"). "Raman-Iyer" and "O'Neil" are judged by their parts. */
+  function personRuns(text, found, other = new Set()) {
+    const P = PII(), out = [];
+    const parts = (w) => bare(w).split(/[-–'’]/).filter((x) => x.length > 1);
+    const known = (w) => found.has(bare(w).toUpperCase()) || parts(w).some((x) => found.has(x.toUpperCase()));
+    const first = (w) => P.firstName(bare(w)) || known(w);
+    const last = (w) => parts(w).length > 0 && parts(w).every((x) => P.surname(x) || found.has(x.toUpperCase())) || known(w);
+    const opener = (w) => OPENER.has(bare(w).toLowerCase());
+    // a city, a state code or an acronym ("Denver", "CO", "IRS") is never a name word
+    const place = (w) => other.has(bare(w).toUpperCase()) || /^\p{Lu}{2,4}$/u.test(bare(w)) && !found.has(bare(w).toUpperCase());
+    const name = (w) => !opener(w) && !place(w) && (first(w) || last(w) || P.plainName(bare(w)) || /^O['’]\p{Lu}/u.test(w) || /^Mc\p{Lu}/u.test(w));
+    for (const m of text.matchAll(RUN)) {
+      const words = m[0].split(/[ \t]+/);
+      // offsets of each word, for what precedes it
+      const at = []; let k = m.index;
+      for (const w of words) { k = text.indexOf(w, k); at.push(k); k += w.length; }
+      for (let i = 0; i < words.length;) {
+        if (!name(words[i])) { i++; continue; }
+        let j = i;
+        while (j < words.length && (name(words[j]) || isInitial(words[j]) || SUFFIX.test(words[j]) && j > i)) { j++; if (SUFFIX.test(words[j - 1])) break; }
+        let end = j;
+        while (end > i && !name(words[end - 1]) && !SUFFIX.test(words[end - 1])) end--;
+        const span = words.slice(i, end);
+        const before = text.slice(Math.max(0, at[i] - 30), at[i]);
+        i = j;
+        const named = span.filter((w) => !isInitial(w) && !SUFFIX.test(w));
+        if (!named.length) continue;
+        const labelled = PERSON_LABEL.test(before);
+        const vouched = named.some(known) || labelled || named.length >= 2 && first(named[0]) && last(named[named.length - 1]);
+        if (named.length >= 2 ? !vouched : !(known(named[0]) || GREETING.test(before) && first(named[0]))) continue;
+        let phrase = span.join(" ").replace(/,$/, "");
+        // "Quillfeather's" is the name; the 's stays in the text
+        phrase = phrase.replace(/['’]s$/i, "");
+        // a run that ends a sentence keeps its full stop out of the name, unless it is an initial or Jr.
+        const tail = span[span.length - 1];
+        if (/\.$/.test(phrase) && !isInitial(tail) && !SUFFIX.test(tail)) phrase = phrase.slice(0, -1);
+        out.push({ phrase, first: bare(named[0]), last: named.length > 1 ? bare(named[named.length - 1]) : null });
+      }
+    }
+    return out;
+  }
+
+  /** What to hide in `text`: one entry per value, each with its tag (reusing the key's tag for a
+   * value it already holds) and every form it is written in. Nothing is added to the key until
+   * the text is hushed. */
+  function find(text, { key = newKey(), alwaysHide = [] } = {}) {
+    const P = PII();
+    const { items } = P.detect([P.textProfile(text, "pasted.txt")]);
+    const draft = { entries: key.entries.slice(), counters: { ...key.counters } };
+    const plan = [];
+    const take = (kind, value, forms, source) => {
+      value = String(value).trim();
+      if (!value || !/[\p{L}\p{N}]/u.test(value)) return null;
+      // a business's first word on its own ("Brightspan") is the business already found in full
+      const had = plan.find((p) => norm(p.value) === norm(value) || kind === "business" && p.kind === "business" && norm(p.value).startsWith(norm(value) + " ") || (DIGITS.has(kind) && DIGITS.has(p.kind) && digitsOf(value).length >= 4 && digitsOf(p.value) === digitsOf(value)));
+      if (had) { for (const f of forms) if (!had.forms.includes(f)) had.forms.push(f); return had; }
+      const old = lookup(draft, kind, value);
+      const tag = old ? old.tag : nextTag(draft, kindTag(kind, source));
+      if (!old) draft.entries.push({ tag, kind, value });
+      const entry = { tag, kind, value, forms: [...new Set([value, ...forms])], checked: true, source, reused: !!old };
+      plan.push(entry);
+      return entry;
+    };
+
+    // the words to always hide come first, so they win over a smaller find inside them
+    for (const w of alwaysHide) if (String(w).trim()) take("custom", w, [], "your list");
+
+    // people: the full name first, then each of its words where it stands alone
+    const found = new Set([...items.values()].filter((i) => i.kind === "name" && i.checked).map((i) => i.display.toUpperCase()));
+    // a person hidden in an earlier paste is known in this one too
+    for (const e of key.entries) if (e.kind === "name") for (const w of String(e.value).split(/\s+/)) if (!isInitial(w)) found.add(bare(w).toUpperCase());
+    const people = [], singles = [];
+    const other = new Set([...items.values()].filter((i) => i.kind === "city" || i.kind === "state" || i.kind === "business").map((i) => i.display.toUpperCase()));
+    for (const run of personRuns(text, found, other)) {
+      // one word alone ("Hi Sarah,", "the Quillfeathers") is a name word, found below, not a person
+      if (!run.last) { if (!found.has(norm(run.first))) singles.push(run.first); continue; }
+      const id = norm(run.first) + "|" + norm(run.last || "");
+      let person = people.find((p) => p.id === id);
+      if (!person) {
+        // "Marisol J Quillfeather" and "Marisol Quillfeather" are one person
+        const old = draft.entries.find((e) => e.kind === "name" && e.person === id);
+        const tag = old ? old.tag : nextTag(draft, "PERSON");
+        person = { id, tag, first: run.first, last: run.last, phrases: new Set() };
+        if (!old) draft.entries.push({ tag, kind: "name", value: run.phrase, person: id });
+        people.push(person);
+      }
+      person.phrases.add(run.phrase);
+    }
+    for (const person of people) {
+      const [value, ...more] = [...person.phrases].sort((a, b) => b.length - a.length);
+      const e = { tag: person.tag, kind: "name", value, forms: [...new Set([value, ...more])], checked: true, source: "name", reused: key.entries.some((k) => k.tag === person.tag), person: person.id };
+      plan.push(e);
+      if (person.last) {
+        // a first name or surname on its own ("Dear Marisol", "the Quillfeathers") is this person's
+        if (!plan.some((p) => norm(p.value) === norm(person.first))) plan.push(partOf(draft, person, "FIRST", person.first));
+        if (!plan.some((p) => norm(p.value) === norm(person.last))) plan.push(partOf(draft, person, "LAST", person.last));
+      }
+    }
+    for (const w of singles) if (!plan.some((p) => norm(p.value) === norm(w))) take("name", w, [], "name");
+    // a name word the finder found that no run explained
+    for (const it of items.values()) {
+      if (it.kind !== "name" || !it.checked || plan.some((p) => norm(p.value) === norm(it.display))) continue;
+      take("name", it.display, [...(it.forms ? it.forms.keys() : [])], "name");
+    }
+    // a birth date in any common form, after the words that say it is one
+    for (const m of text.matchAll(BORN)) take("dob", m[1], [], "dob");
+    // a business by its legal ending ("Acme Plumbing Inc"), when the finder had no file to judge it by
+    for (const m of text.matchAll(COMPANY)) if (!/\b(?:bank|university|college|insurance|internal revenue|department)\b/i.test(m[1])) take("business", m[1].trim(), [], "business");
+    // everything else the finder found, in the order it reads
+    for (const it of items.values()) {
+      if (it.kind === "name" || it.kind === "state" || !it.checked || !TAG[it.kind]) continue;
+      take(it.kind, it.display, [...(it.variants || []), ...(it.forms ? it.forms.keys() : [])], it.kind);
+    }
+    // whatever the key already hides, wherever it turns up again ("the Quillfeathers' accountant")
+    for (const e of key.entries) {
+      if (plan.some((p) => p.tag === e.tag || norm(p.value) === norm(e.value))) continue;
+      const forms = e.forms && e.forms.length ? e.forms : [e.value];
+      if (forms.some((f) => new RegExp(patternFor(e, f), "iu").test(text))) plan.push({ tag: e.tag, kind: e.kind, value: e.value, forms: forms.slice(), checked: true, source: "key", reused: true, person: e.person });
+    }
+    // a business's full name ("Brightspan Digital LLC") is the business, not just its first word
+    const BIZ = /\b(?:LLC|L\.L\.C\.|PLLC|LLP|Inc\.?|Corp\.?|Co\.|Company|Ltd\.?)(?![A-Za-z])/;
+    for (const e of plan.filter((p) => p.kind === "business")) {
+      const rx = new RegExp("(?<![\\p{L}\\p{N}])" + esc(e.value) + "(?:[ \\t]+[\\p{Lu}][\\p{L}&'’.-]*){0,4}", "giu");
+      for (const m of text.matchAll(rx)) {
+        const full = m[0].match(new RegExp("^.*?" + BIZ.source))?.[0];
+        if (full && !e.forms.includes(full)) e.forms.unshift(full);
+      }
+    }
+    return plan;
+  }
+  function kindTag(kind, source) { return kind === "custom" ? "HIDDEN" : TAG[kind] || "HIDDEN"; }
+  function partOf(draft, person, part, word) {
+    // a surname the household shares keeps the tag it was first given
+    const had = draft.entries.find((e) => e.kind === "name" && !e.person && norm(e.value) === norm(word));
+    if (had) return { tag: had.tag, kind: "name", value: word, forms: [word], checked: true, source: "name", reused: true, part };
+    const tag = person.tag + "-" + part;
+    if (!draft.entries.some((e) => e.tag === tag)) draft.entries.push({ tag, kind: "name", value: word });
+    return { tag, kind: "name", value: word, forms: [word], checked: true, source: "name", reused: false, part };
+  }
+
+  // ---------------------------------------------------------------- hushing
+  /** One pattern per form: whole words only (so "Ann" never hides inside "Annual"), any
+   * capitals; a number of digits however it is spaced ("481-27-3306", "481 27 3306",
+   * "481273306"). */
+  function patternFor(entry, form) {
+    if (DIGITS.has(entry.kind) && digitsOf(form).length >= 4) {
+      const d = digitsOf(form).split("");
+      // a phone's area code in brackets is hidden with its brackets: "([PHONE-1]" would be odd
+      return (entry.kind === "phone" ? "(?:\\(\\s?)?" : "") + "(?<!\\d)" + d.join("[\\s.\\-/()]{0,2}") + "(?!\\d)";
+    }
+    const body = esc(form).replace(/\s+/g, "\\s+");
+    return (wordy(form) ? "(?<![\\p{L}\\p{N}])" : "") + body + (wordy(form) ? "(?![\\p{L}\\p{N}])" : "");
+  }
+  function matcher(entries) {
+    const pairs = [];
+    for (const e of entries) for (const f of e.forms) pairs.push({ e, f });
+    // the longest form first, so a full name is hidden before its first name
+    pairs.sort((a, b) => b.f.length - a.f.length);
+    if (!pairs.length) return null;
+    return { rx: new RegExp(pairs.map((p) => "(" + patternFor(p.e, p.f) + ")").join("|"), "giu"), pairs };
+  }
+
+  /** The text with every ticked entry replaced by its tag, and the key grown by those entries. */
+  function hush(text, plan, key = newKey()) {
+    const on = plan.filter((p) => p.checked);
+    const m = matcher(on);
+    let count = 0;
+    const hushed = m ? text.replace(m.rx, (...args) => {
+      const groups = args.slice(1, 1 + m.pairs.length);
+      const k = groups.findIndex((g) => g !== undefined);
+      count++;
+      return "[" + m.pairs[k].e.tag + "]";
+    }) : text;
+    for (const e of on) {
+      const had = key.entries.find((k) => k.tag === e.tag);
+      if (had) { had.forms = [...new Set([...(had.forms || [had.value]), ...e.forms])]; continue; }
+      key.entries.push({ tag: e.tag, kind: e.kind, value: e.value, forms: e.forms.slice(), person: e.person });
+      const base = e.tag.replace(/-\d+(?:-(?:FIRST|LAST))?$/, "");
+      const n = +(/-(\d+)(?:-(?:FIRST|LAST))?$/.exec(e.tag) || [0, 0])[1];
+      if (n > (key.counters[base] || 0)) key.counters[base] = n;
+    }
+    return { text: hushed, count, leaks: leaks(hushed, on) };
+  }
+
+  /** Every hidden value still in the hushed text (none, when hushing worked), and anything else
+   * the finder still reads as personal there. */
+  function leaks(hushed, entries) {
+    const plain = hushed.replace(LOOKS_LIKE_TAG, " ");
+    const left = [];
+    for (const e of entries) for (const f of e.forms) {
+      if (new RegExp(patternFor(e, f), "iu").test(plain)) { left.push({ tag: e.tag, value: e.value, why: "still in the text" }); break; }
+    }
+    const P = PII();
+    const { items } = P.detect([P.textProfile(plain, "hushed.txt")]);
+    for (const it of items.values()) {
+      if (!it.checked || it.kind === "state") continue;
+      left.push({ tag: null, value: it.display, kind: it.kind, why: "still reads as " + (TAG[it.kind] || it.kind).toLowerCase() });
+    }
+    return left;
+  }
+
+  // ---------------------------------------------------------------- restoring
+  /** The AI's answer with every tag the key knows replaced by its value. An AI may write a tag
+   * with spaces inside the brackets or escape the brackets as Markdown; both still restore. Tags
+   * the key does not know are listed, never guessed. */
+  function restore(answer, key) {
+    const byTag = new Map(key.entries.map((e) => [e.tag.toUpperCase(), e.value]));
+    const restored = new Map(), unknown = new Set();
+    const text = String(answer).replace(LOOKS_LIKE_TAG, (all, tag) => {
+      const v = byTag.get(tag.toUpperCase());
+      if (v === undefined) { unknown.add(tag); return all; }
+      restored.set(tag.toUpperCase(), (restored.get(tag.toUpperCase()) || 0) + 1);
+      return v;
+    });
+    // a tag the user renamed to a word without a number ("[SPOUSE]") restores too
+    const plainTags = key.entries.filter((e) => !/-/.test(e.tag));
+    const out = plainTags.length ? text.replace(new RegExp("\\\\?\\[\\s*(" + plainTags.map((e) => esc(e.tag)).join("|") + ")\\s*\\\\?\\]", "gi"), (all, tag) => {
+      restored.set(tag.toUpperCase(), (restored.get(tag.toUpperCase()) || 0) + 1);
+      return byTag.get(tag.toUpperCase());
+    }) : text;
+    return { text: out, restored: [...restored].map(([tag, n]) => ({ tag, n })), unknown: [...unknown] };
+  }
+
+  /** A new name for a tag in the plan and the key: capitals, digits and hyphens, unused. Its first
+   * and last name tags follow it ("PERSON-2" to "SPOUSE" makes "SPOUSE-FIRST"). */
+  function renameTag(plan, key, from, to) {
+    to = String(to).trim().replace(/^\[|\]$/g, "").toUpperCase();
+    if (!TAG_TEXT.test(to)) return "Use capital letters, digits and hyphens, e.g. SPOUSE or CHILD-1.";
+    const all = new Set([...plan.map((p) => p.tag), ...key.entries.map((e) => e.tag)]);
+    if (to !== from && all.has(to)) return "[" + to + "] already stands for something else.";
+    const move = (t) => (t === from ? to : t.startsWith(from + "-") && /-(FIRST|LAST)$/.test(t) ? to + t.slice(from.length) : t);
+    for (const p of plan) p.tag = move(p.tag);
+    for (const e of key.entries) e.tag = move(e.tag);
+    return null;
+  }
+
+  // ---------------------------------------------------------------- the locked key
+  const FORMAT = "identity-swap-hush-key", ITERATIONS = 600000;
+  const b64 = (bytes) => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  async function derive(passphrase, salt, iterations) {
+    const subtle = globalThis.crypto.subtle;
+    const base = await subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+    return subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  }
+  /** The key, and the words to always hide, as a file only the passphrase opens. */
+  async function lock(key, alwaysHide, passphrase) {
+    if (!passphrase || passphrase.length < 8) throw new Error("Use a passphrase of at least 8 characters.");
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16)), iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+    const plain = new TextEncoder().encode(JSON.stringify({ entries: key.entries, counters: key.counters, alwaysHide }));
+    const data = new Uint8Array(await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv }, await derive(passphrase, salt, ITERATIONS), plain));
+    return JSON.stringify({ format: FORMAT, version: 1, cipher: "AES-256-GCM", kdf: "PBKDF2-SHA-256", iterations: ITERATIONS, salt: b64(salt), iv: b64(iv), data: b64(data) });
+  }
+  /** The key and the words to always hide, from a locked file and its passphrase. */
+  async function unlock(fileText, passphrase) {
+    let f;
+    try { f = JSON.parse(fileText); } catch (e) { throw new Error("This is not a saved key."); }
+    if (!f || f.format !== FORMAT || f.version !== 1) throw new Error("This is not a saved key.");
+    let plain;
+    try {
+      plain = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv) }, await derive(passphrase, unb64(f.salt), f.iterations), unb64(f.data));
+    } catch (e) { throw new Error("That passphrase does not open this key."); }
+    const got = JSON.parse(new TextDecoder().decode(plain));
+    return { key: { entries: got.entries || [], counters: got.counters || {} }, alwaysHide: got.alwaysHide || [] };
+  }
+
+  return { TAG, newKey, find, hush, leaks, restore, renameTag, lock, unlock, personRuns };
+})();
+globalThis.PDFSwapHush = PDFSwapHush;
+if (typeof module !== "undefined") module.exports = PDFSwapHush;
+
+/* ---- hushui.js ---- */
+/* Identity Swap: the page's second mode. Hush text for an AI chat, restore the answer, keep or
+ * lock the key, and check for yourself that the page reaches no network. */
+(() => {
+  "use strict";
+  const H = PDFSwapHush;
+  const $ = (id) => document.getElementById(id);
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else if (k === "text") n.textContent = v; else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    return n;
+  }
+  const fill = (node, ...kids) => node.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
+  const plural = (n, one, many) => n + " " + (n === 1 ? one : many || one + "s");
+  const clone = (key) => JSON.parse(JSON.stringify(key));
+  const KIND = { name: "Name", business: "Business", ssn: "SSN", ssn4: "SSN", ein: "EIN", phone: "Phone", email: "Email", street: "Street", unit: "Suite / unit", city: "City", zip: "ZIP", zip4: "ZIP+4", acct: "Account", idnum: "ID number", dob: "Birth date", iddate: "Date", custom: "Your list" };
+
+  // the key lives here, in this tab's memory, and nowhere else unless it is saved locked
+  const S = { key: H.newKey(), alwaysHide: [], plan: [], off: new Set(), result: null, timer: 0 };
+
+  // ------------------------------------------------------------------ the two modes
+  for (const b of document.querySelectorAll("[data-mode]")) b.addEventListener("click", () => mode(b.dataset.mode));
+  function mode(m) {
+    for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-selected", String(b.dataset.mode === m));
+    $("swapMode").hidden = m !== "swap";
+    $("hushMode").hidden = m !== "hush";
+  }
+
+  // ------------------------------------------------------------------ hushing
+  const source = $("hushIn");
+  source.addEventListener("input", () => { clearTimeout(S.timer); S.timer = setTimeout(run, 250); });
+  $("hushFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (f.size > 2e6) { fill($("hushFileMsg"), "That file is over 2 MB; paste the part you need instead."); return; }
+    source.value = await f.text();
+    fill($("hushFileMsg"), "Read " + f.name + " in this tab.");
+    run();
+  });
+  $("hushList").addEventListener("input", (e) => {
+    S.alwaysHide = e.target.value.split(/\r?\n/).map((w) => w.trim()).filter(Boolean);
+    clearTimeout(S.timer); S.timer = setTimeout(run, 250);
+  });
+
+  function run() {
+    const text = source.value;
+    if (!text.trim()) { S.plan = []; S.result = null; render(); return; }
+    S.plan = H.find(text, { key: S.key, alwaysHide: S.alwaysHide });
+    for (const p of S.plan) if (S.off.has(p.value.toUpperCase())) p.checked = false;
+    // a preview: the key grows only when the hushed text is copied or an answer is restored
+    S.result = H.hush(text, S.plan, clone(S.key));
+    render();
+  }
+  function commit() {
+    if (!S.result) return;
+    H.hush(source.value, S.plan, S.key);
+    renderKey();
+  }
+
+  function render() {
+    const plan = S.plan, r = S.result;
+    $("hushOut").value = r ? r.text : "";
+    $("hushCopy").disabled = !r;
+    fill($("hushCount"), r ? plural(plan.filter((p) => p.checked).length, "value") + " hidden, " + plural(r.count, "place") + " in the text" : "");
+    const rows = plan.map((p) => {
+      const box = el("input", { type: "checkbox", "aria-label": "Hide " + p.value, onchange: (e) => {
+        p.checked = e.target.checked;
+        if (p.checked) S.off.delete(p.value.toUpperCase()); else S.off.add(p.value.toUpperCase());
+        run();
+      } });
+      box.checked = p.checked;
+      const tag = el("input", { type: "text", class: "mono", value: p.tag, size: Math.max(10, p.tag.length + 2), "aria-label": "Tag for " + p.value, spellcheck: "false" });
+      const msg = el("span", { class: "small" });
+      tag.addEventListener("change", () => {
+        // the tag is kept in the key, so the next paste and the restore use the new name
+        commit();
+        const bad = H.renameTag(S.plan, S.key, p.tag, tag.value);
+        if (bad) { msg.textContent = bad; tag.value = p.tag; return; }
+        run();
+      });
+      return el("tr", { class: p.checked ? "" : "off" },
+        el("td", null, box), el("td", null, el("span", { class: "kind", text: KIND[p.kind] || p.kind })),
+        el("td", { class: "mono" }, p.value, p.forms.length > 1 ? el("span", { class: "ctx", text: "Also as: " + p.forms.filter((f) => f !== p.value).slice(0, 4).join(", ") }) : null),
+        el("td", null, el("div", { class: "row" }, el("span", { "aria-hidden": "true" }, "["), tag, el("span", { "aria-hidden": "true" }, "]"), msg)),
+        el("td", { class: "small", text: p.reused ? "in the key" : p.source === "your list" ? "your list" : "" }));
+    });
+    fill($("hushTable"), plan.length ? el("div", { class: "tablewrap" }, el("table", null,
+      el("thead", null, el("tr", null, el("th", { text: "Hide" }), el("th", { text: "Kind" }), el("th", { text: "Found" }), el("th", { text: "Tag the AI sees" }), el("th", { text: "" }))),
+      el("tbody", null, rows))) : el("p", { class: "small", text: source.value.trim() ? "Nothing personal found. Read the text before you send it; add anything missed to the list of words to always hide." : "Paste text above to see what will be hidden." }));
+    // the hushed text searched again: no hidden value may be left, and anything that still
+    // reads as personal is shown with a way to hide it
+    const left = r ? r.leaks : [];
+    const still = left.filter((l) => !l.tag), stuck = left.filter((l) => l.tag);
+    fill($("hushCheck"),
+      !r ? null : stuck.length ? el("p", { class: "note bad" }, plural(stuck.length, "hidden value") + " could still be read in the hushed text: " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ". Do not send it.")
+        : el("p", { class: "note ok" }, "Searched again: none of the hidden values is left in the hushed text."),
+      still.length ? el("div", { class: "note warn" }, el("p", { style: "margin:0 0 6px" }, "This still reads as personal. Hide it, or leave it if it is not:"),
+        el("div", { class: "row" }, still.map((l) => el("button", { type: "button", class: "secondary", title: l.why, onclick: () => addToList(l.value) }, "Hide “" + l.value + "”")))) : null,
+      r ? el("p", { class: "small" }, "The AI still receives everything that is not hidden: a rare condition, an unusual job or a small town can point to a person. Read the hushed text before you send it.") : null);
+  }
+  function addToList(v) {
+    if (!S.alwaysHide.includes(v)) S.alwaysHide.push(v);
+    $("hushList").value = S.alwaysHide.join("\n");
+    $("hushListBox").open = true;
+    run();
+  }
+
+  $("hushCopy").addEventListener("click", async () => {
+    commit();
+    try { await navigator.clipboard.writeText($("hushOut").value); fill($("hushCopyMsg"), "Copied. Paste it into the AI chat."); }
+    catch (e) { $("hushOut").select(); fill($("hushCopyMsg"), "Selected; press Ctrl+C to copy."); }
+  });
+
+  // ------------------------------------------------------------------ restoring
+  const answer = $("restoreIn");
+  answer.addEventListener("input", restore);
+  $("restorePaste").addEventListener("click", async () => {
+    try { answer.value = await navigator.clipboard.readText(); restore(); }
+    catch (e) { answer.focus(); fill($("restoreMsg"), "This browser did not allow reading the clipboard; paste with Ctrl+V."); }
+  });
+  function restore() {
+    commit();
+    if (!answer.value.trim()) { $("restoreOut").value = ""; fill($("restoreMsg")); return; }
+    const r = H.restore(answer.value, S.key);
+    $("restoreOut").value = r.text;
+    const n = r.restored.reduce((a, x) => a + x.n, 0);
+    fill($("restoreMsg"),
+      el("p", { class: n ? "note ok" : "note warn" }, n ? "Restored " + plural(n, "tag") + ", " + plural(r.restored.length, "value") + " in all." : "No tag this key knows is in the answer."),
+      r.unknown.length ? el("p", { class: "note warn" }, "This key does not know " + r.unknown.map((t) => "[" + t + "]").join(", ") + ", so " + (r.unknown.length === 1 ? "it is" : "they are") + " left as written. Open the key that hushed that text, or check whether the AI invented the tag.") : null);
+  }
+  $("restoreCopy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("restoreOut").value); fill($("restoreCopyMsg"), "Copied."); }
+    catch (e) { $("restoreOut").select(); fill($("restoreCopyMsg"), "Selected; press Ctrl+C to copy."); }
+  });
+
+  // ------------------------------------------------------------------ the key
+  function renderKey() {
+    const n = S.key.entries.length;
+    fill($("keyState"), n ? "This tab holds a key of " + plural(n, "tag") + ". Closing the tab forgets it." : "No key yet. It is made when you copy hushed text, and lives only in this tab.");
+    $("keySave").disabled = !n && !S.alwaysHide.length;
+    $("keyForget").disabled = !n;
+  }
+  $("keyForget").addEventListener("click", () => {
+    S.key = H.newKey(); S.off.clear();
+    fill($("keyMsg"), "Forgotten. Answers to text hushed before now can no longer be restored in this tab.");
+    run(); restore(); renderKey();
+  });
+  $("keySave").addEventListener("click", async () => {
+    const a = $("keyPass").value, b = $("keyPass2").value;
+    if (a !== b) { fill($("keyMsg"), el("span", { class: "result-bad" }, "The two passphrases differ.")); return; }
+    try {
+      fill($("keyMsg"), "Locking");
+      const file = await H.lock(S.key, S.alwaysHide, a);
+      const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "");
+      const link = el("a", { href: URL.createObjectURL(new Blob([file], { type: "application/json" })), download: "Hush key " + stamp + ".hushkey" });
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+      $("keyPass").value = $("keyPass2").value = "";
+      fill($("keyMsg"), "Saved, locked with your passphrase (AES-256-GCM). It holds the real values: keep it with the client's file, and keep the passphrase apart from it. Without the passphrase it cannot be opened, by you or anyone.");
+    } catch (e) { fill($("keyMsg"), el("span", { class: "result-bad" }, e.message)); }
+  });
+  $("keyOpen").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    try {
+      const got = await H.unlock(await f.text(), $("keyOpenPass").value);
+      // a saved key joins the one in this tab: its tags keep their meaning
+      for (const ent of got.key.entries) if (!S.key.entries.some((k) => k.tag === ent.tag)) S.key.entries.push(ent);
+      for (const [b, n] of Object.entries(got.key.counters)) S.key.counters[b] = Math.max(S.key.counters[b] || 0, n);
+      for (const w of got.alwaysHide) if (!S.alwaysHide.includes(w)) S.alwaysHide.push(w);
+      $("hushList").value = S.alwaysHide.join("\n");
+      $("keyOpenPass").value = "";
+      fill($("keyMsg"), "Opened " + f.name + ": " + plural(got.key.entries.length, "tag") + ", " + plural(got.alwaysHide.length, "word") + " to always hide.");
+      run(); restore(); renderKey();
+    } catch (err) { fill($("keyMsg"), el("span", { class: "result-bad" }, err.message)); }
+  });
+  renderKey();
+
+  // ------------------------------------------------------------------ check it yourself
+  // Every request the page makes is counted: what the browser fetched (anything not built into
+  // the page) and what the page's own rules refused.
+  const seen = { fetched: 0, refused: 0 };
+  const external = (u) => !/^(data|blob|about|chrome-extension):/.test(u);
+  try {
+    for (const e of performance.getEntriesByType("resource")) if (external(e.name)) seen.fetched++;
+    new PerformanceObserver((list) => { for (const e of list.getEntries()) if (external(e.name)) seen.fetched++; showCheck(); }).observe({ type: "resource", buffered: false });
+  } catch (e) { /* an old browser lists nothing; the counter stays at what it saw */ }
+  document.addEventListener("securitypolicyviolation", () => { seen.refused++; showCheck(); });
+  function showCheck() {
+    fill($("checkCounts"),
+      el("div", { class: "stat" }, el("b", { text: seen.fetched }), el("span", { text: "requests that left this page" })),
+      el("div", { class: "stat" }, el("b", { text: seen.refused }), el("span", { text: "requests the page refused" })));
+  }
+  $("checkTry").addEventListener("click", async () => {
+    fill($("checkMsg"), "Trying to reach example.com");
+    try {
+      await fetch("https://example.com/", { cache: "no-store" });
+      fill($("checkMsg"), el("span", { class: "result-bad" }, "The request went through. This copy of the page is not locked; do not use it with client data."));
+    } catch (e) {
+      fill($("checkMsg"), el("span", { class: "result-swapped" }, "Refused. The page's own rules stopped it before it left the browser."));
+    }
+  });
+  const csp = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+  $("checkRules").textContent = csp ? csp.content : "No rules found: do not use this copy with client data.";
+  showCheck();
 })();
 
 </script>
