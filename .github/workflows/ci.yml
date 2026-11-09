@@ -1,0 +1,68 @@
+# Every push and pull request: the finding rules are scored on the benchmark, the tests run, and the
+# committed page is rebuilt from its pinned sources and must come out byte for byte the same.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: Benchmark and lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff==0.16.9
+      - run: ruff check web tests companion
+      - name: Score the finding rules on 600 invented tax documents
+        run: node bench/run.js
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: "LibreOffice, for the companion's tests"
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer libreoffice-calc libreoffice-impress fonts-dejavu-core
+      - name: "Python libraries: the companion's, except docling (torch is too large for every push)"
+        run: pip install -r requirements.txt python-docx==1.2.0 python-pptx==1.0.2 openpyxl==3.1.5 pdfplumber==0.11.10 cryptography==50.0.1
+      - name: "Playwright and Chromium, for the end-to-end test of the page"
+        run: npm install --no-save --omit=optional --ignore-scripts playwright@1.63.0 && npx playwright install --with-deps chromium
+      - name: "Tests (the docling test skips here; it runs where docling and its models are installed)"
+        run: python -m pytest -q tests
+
+  page:
+    name: The page is its sources
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: "npm ci, without PDF.js's optional Node-only parts (canvas and the tar it brings): the page never uses them"
+        run: npm ci --ignore-scripts --omit=optional
+      - run: pip install -r requirements.txt
+      - name: Fetch the PP-OCR models, checked against their pinned SHA-256
+        run: python web/fetch_docling_models.py ocr-models
+      - name: Build the page and compare it with the committed one
+        run: |
+          python web/build.py --libs node_modules --models ocr-models --out rebuilt.html
+          cmp rebuilt.html identity-swap.html

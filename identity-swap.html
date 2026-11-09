@@ -10,6 +10,9 @@
   Identity Swap: realistic stand-ins for the personal information in a folder of client
   documents. Runs entirely in this browser tab. No AI service, no network, no upload.
 
+  Copyright (C) 2026 Taxably, Inc. Free software under the GNU Affero General Public License,
+  version 3 only (AGPL-3.0-only), with NO WARRANTY. Source: https://github.com/Taxably/identity-swap
+
   Includes pdf-lib 1.17.1 (MIT, Andrew Dillon; bundles pako, MIT), PDF.js 3.11.174
   (Apache License 2.0, Mozilla Foundation), docling's OCR engine (RapidOCR's PP-OCRv5 models,
   Apache License 2.0, run by ONNX Runtime Web 1.22.0, MIT), the Tesseract 5 OCR engine as built by
@@ -90,6 +93,19 @@ fieldset.choice { border: 1px solid var(--line); border-radius: 10px; padding: 1
 fieldset.choice legend { font-weight: 700; color: var(--ink-2); padding: 0 6px; }
 fieldset.choice label { margin: 4px 0; }
 footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
+.modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 18px; }
+.modes button { background: var(--surface); color: var(--ink-2); border: 1px solid var(--line); }
+.modes button[aria-selected="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+textarea { font: inherit; font-size: 14px; width: 100%; min-height: 150px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fff; color: var(--ink); resize: vertical; }
+textarea.mono { font-family: var(--mono); font-size: 13px; }
+textarea[readonly] { background: #FCFBF8; }
+textarea:focus-visible { outline: 3px solid #7CC4C2; outline-offset: 2px; }
+.att { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; margin-top: 8px; background: #FCFBF8; }
+.att .name { font-weight: 700; overflow-wrap: anywhere; }
+.att .grow { flex: 1 1 260px; min-width: 0; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+code.rules { display: block; font-family: var(--mono); font-size: 12px; background: #F2F0EA; border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; color: var(--ink-2); }
 @media (max-width: 640px) { .wrap { padding: 18px 16px 48px; } h1 { font-size: 23px; } .card { padding: 16px; } }
 </style>
 </head>
@@ -98,7 +114,8 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
   <header class="top">
     <div>
       <h1>Identity Swap</h1>
-      <p class="lede">Give it a client folder. It gives back the same folder, every file and subfolder in place, with names, businesses, SSNs, EINs, street addresses, cities, ZIP codes, phone numbers, emails, account numbers and driver licence and ID numbers replaced by realistic stand-ins: real first names and surnames, a middle initial for a middle initial, and a real city in the same state with a real ZIP code of its own. Dependents and children are found beside the family name, and employers and payers with or without an LLC. PDFs, Excel, Word and PowerPoint files, CSV and text files, zip archives, and scans and photos (JPEG, PNG, TIFF, HEIC, GIF, BMP, WebP) all come back as the kind they came. Nothing else on any page moves.</p>
+      <p class="lede"><b>Two tools, one page.</b> Swap a client folder for realistic stand-ins, for testing, demos and training; or swap a client email and its attachments for tags such as [PERSON-1] before you ask an AI about them, and put the real details back in the answer. Everything happens in this tab.</p>
+      <p class="lede" id="swapLede">Give it a client folder. It gives back the same folder, every file and subfolder in place, with names, businesses, SSNs, EINs, street addresses, cities, ZIP codes, phone numbers, emails, account numbers and driver licence and ID numbers replaced by realistic stand-ins: real first names and surnames, a middle initial for a middle initial, and a real city in the same state with a real ZIP code of its own. Dependents and children are found beside the family name, and employers and payers with or without an LLC. PDFs, Excel, Word and PowerPoint files, CSV and text files, zip archives, and scans and photos (JPEG, PNG, TIFF, HEIC, GIF, BMP, WebP) all come back as the kind they came. Nothing else on any page moves.</p>
     </div>
     <span class="badge" title="The page refuses every network request. Your files are read by this browser tab and nowhere else.">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
@@ -106,6 +123,12 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
     </span>
   </header>
 
+  <nav class="modes" role="tablist" aria-label="What to do">
+    <button type="button" role="tab" data-mode="swap" aria-selected="true">Swap a client folder</button>
+    <button type="button" role="tab" data-mode="hush" aria-selected="false">Swap text for an AI chat</button>
+  </nav>
+
+  <div id="swapMode">
   <section class="card" id="step1">
     <div class="step"><div class="num">1</div><div><h2>Choose the client folder</h2><p class="sub">Every file is read in this tab: PDFs, spreadsheets, Word and PowerPoint files, text files, zip archives, scans and photos. A 3 GB folder is fine.</p></div></div>
     <div class="drop" id="drop">
@@ -125,8 +148,80 @@ footer { margin-top: 30px; color: var(--muted); font-size: 12px; }
     <div class="step"><div class="num">3</div><div><h2>Make the copy</h2><p class="sub">Your folder is not touched. The copy is written where you choose, under the swapped names.</p></div></div>
     <div id="runOut"></div>
   </section>
+  </div>
+
+  <div id="hushMode" hidden>
+  <section class="card">
+    <div class="step"><div class="num">1</div><div><h2>Paste what you want to ask about</h2><p class="sub">A client email, a note, a document's text. Names, SSNs, EINs, addresses, phones, emails, account and ID numbers and birth dates become tags such as [PERSON-1] and [SSN-1]. The same value keeps the same tag in every paste.</p></div></div>
+    <textarea id="hushIn" aria-label="Text to swap" placeholder="Paste text here" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:10px"><label class="small" for="hushFile">Attach files to swap the same way (PDF, Word, Excel, PowerPoint, text, scans and photos):</label><input id="hushFile" type="file" multiple accept=".pdf,.docx,.docm,.dotx,.xlsx,.xlsm,.xltx,.pptx,.pptm,.potx,.ppsx,.txt,.csv,.eml,.md,.jpg,.jpeg,.png,.webp,.tif,.tiff,.heic,.bmp,.gif,application/pdf,text/plain,text/csv,image/*"><span id="hushFileMsg" class="small"></span></div>
+    <div id="attList"></div>
+    <details id="hushListBox" style="margin-top:12px">
+      <summary>Words to always hide</summary>
+      <p class="small">One per line: a client's name or nickname, an employer, a street. Each is hidden wherever it appears as a whole word, in any capitals. The list stays in this tab, and goes into a saved key if you save one.</p>
+      <textarea id="hushList" class="mono" aria-label="Words to always hide" style="min-height:80px" spellcheck="false"></textarea>
+      <div class="row" style="margin-top:10px"><label class="small" for="clientList">Import the firm's client list (a CSV or text export from ProConnect, TaxDome, Canopy or a spreadsheet), so every client is known by name, however rare:</label><input id="clientList" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain"><span id="clientMsg" class="small"></span></div>
+    </details>
+  </section>
+
+  <section class="card">
+    <div class="step"><div class="num">2</div><div><h2>Check what is hidden, then copy</h2><p class="sub">Untick anything that should stay. Rename a tag if it helps the AI, for example [PERSON-2] to [SPOUSE]. Finding is a safety net, not a guarantee: read the swapped text before you send it.</p></div></div>
+    <div id="hushTable"></div>
+    <div class="row" style="margin:14px 0 6px"><h2 style="margin:0">Swapped text</h2><span id="hushCount" class="small"></span></div>
+    <textarea id="hushOut" readonly aria-label="Swapped text" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px"><button id="hushCopy" type="button" class="teal" disabled>Copy swapped text</button><span id="hushCopyMsg" class="small"></span></div>
+    <div id="hushCheck"></div>
+    <div id="attOut"></div>
+  </section>
+
+  <section class="card">
+    <div class="step"><div class="num">3</div><div><h2>Restore the AI's answer</h2><p class="sub">Paste the answer. Every tag this tab's key knows becomes the real value again, here, in this tab.</p></div></div>
+    <div class="pair">
+      <div><textarea id="restoreIn" aria-label="The AI's answer" placeholder="Paste the AI's answer here" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:8px"><button id="restorePaste" type="button" class="secondary">Paste from clipboard</button></div></div>
+      <div><textarea id="restoreOut" readonly aria-label="The answer with real details" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:8px"><button id="restoreCopy" type="button" class="teal">Copy with real details</button><span id="restoreCopyMsg" class="small"></span></div></div>
+    </div>
+    <div id="restoreMsg"></div>
+    <div class="row" style="margin-top:14px"><label class="small" for="restoreFile">Or restore files the AI gave back (Word, Excel, PowerPoint, PDF, text):</label><input id="restoreFile" type="file" multiple accept=".pdf,.docx,.docm,.xlsx,.xlsm,.pptx,.pptm,.txt,.csv,.md,application/pdf,text/plain,text/csv"></div>
+    <div id="restoreFiles"></div>
+  </section>
+
+  <section class="card">
+    <h2>The key</h2>
+    <p id="keyState" class="sub"></p>
+    <details style="margin-top:10px">
+      <summary>Save it locked, to restore answers later</summary>
+      <p class="small">The saved key holds the real values, encrypted with your passphrase (AES-256-GCM, PBKDF2-SHA-256, 600,000 rounds). Lose the passphrase and the key cannot be opened. It also carries your words to always hide.</p>
+      <div class="row"><input id="keyPass" type="password" autocomplete="new-password" placeholder="Passphrase, 8 characters or more" aria-label="Passphrase"><input id="keyPass2" type="password" autocomplete="new-password" placeholder="Passphrase again" aria-label="Passphrase again"><button id="keySave" type="button" class="secondary">Save locked key</button></div>
+    </details>
+    <details style="margin-top:10px">
+      <summary>Open a saved key</summary>
+      <div class="row" style="margin-top:8px"><input id="keyOpenPass" type="password" autocomplete="current-password" placeholder="Its passphrase" aria-label="Passphrase of the saved key"><label class="small" for="keyOpen">then choose the .swapkey file:</label><input id="keyOpen" type="file" accept=".swapkey,.hushkey,application/json"></div>
+    </details>
+    <div class="row" style="margin-top:12px"><button id="keyForget" type="button" class="secondary">Forget the key now</button></div>
+    <p id="keyMsg" class="small"></p>
+  </section>
+  </div>
+
+  <section class="card">
+    <h2>Check it yourself</h2>
+    <p class="sub">You should not have to take the page's word for it. These counters watch every request this tab makes.</p>
+    <div class="stats" id="checkCounts"></div>
+    <div class="row"><button id="checkTry" type="button" class="secondary">Try to reach the internet</button><span id="checkMsg" class="small"></span></div>
+    <details style="margin-top:12px">
+      <summary>Three more ways to check</summary>
+      <ol class="small">
+        <li>Turn off Wi-Fi or unplug the network, then reload this page. Everything still works, because everything it needs is inside this one file.</li>
+        <li>Press F12, open the Network tab, and use the page. Nothing is listed but the page itself and the pictures it makes in memory (data: and blob:).</li>
+        <li>Read the rules the page sets for itself, at the top of the file. The browser enforces them, not the page's own code:</li>
+      </ol>
+      <code class="rules" id="checkRules"></code>
+    </details>
+  </section>
 
   <footer>
+    <p style="margin:0 0 8px">Identity Swap 1.0.0 is free, open-source software from Taxably, under the GNU Affero General Public License, version 3, with no warranty. Its source, to read, check or build yourself: github.com/Taxably/identity-swap. This page makes no request to that address or any other.</p>
     Identity Swap finds names and numbers with fixed rules; no AI service sees anything. Each character is rewritten in place, in the font the PDF already uses, so the old text is gone from the file rather than covered. A stand-in longer or shorter than its value takes the value's place, and the space after it takes up the difference, so everything else on the line stays where it was. Every copied PDF is checked before it is kept: nothing of the original is left, every other character is where it was, the rendered pages differ only inside the swapped words, and the page text reads as planned.
     A spreadsheet, a Word file or a slide deck is changed inside its own parts: formulas, numbers, formatting and layout stay as they were, a value Word split in two is found whole, and the copy must open and hold nothing of the original. A text file is written back in its own encoding. A zip archive is opened and every file in it handled the same way. A file locked against copying or printing is left out and listed.
     Pages that are pictures (scans, photos) are read inside this page by two OCR engines, Tesseract and docling's (PP-OCR on ONNX Runtime), and what either reads is searched. Every PDF page is drawn too, and what it shows that the file does not hold as letters (outlined text, a font with no letters, a small picture) is read; such a page is drawn again as a picture and painted like a scan. Each value is painted over in the picture with letters cut from the same page (a font that matches is used only for a letter the page never shows), the picture is written back at its own size, kind, resolution and colours (a palette picture keeps its palette, a fax stays black and white), and it is read again: the stand-in must read where it was painted, no original value may read anywhere, and nothing outside the painted words may change. Handwriting, signatures and stamps cannot be read; they are listed, and you choose whether to copy, erase or hold them back. On a driver licence or ID card, scanned, photographed or faxed, the photo and its faint copy are replaced with a plain silhouette (on a fax, the blots left of the faint copy go too), and the name, licence number, birth date, issue and expiry dates, address and DD number are swapped. A value that cannot be redrawn in its stand-in is blanked out rather than the file held back. The copy holds the same folders as the original, empty ones too, and every file in its place; the report is saved beside it. An SSN a spreadsheet kept as a number, with its leading zeros dropped, is found as the SSN it is. A HEIC photo comes back as a JPEG, because no free tool writes HEIC in a browser, and the report says so.
@@ -5559,7 +5654,16 @@ const PDFSwapPII = (() => {
     }).join("/");
   }
 
-  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, lists: { FIRST, LAST, STREET } };
+  /** A word a person's name could be by itself: on the name lists and not also an everyday English
+   * word ("Marisol" is, "Grace" and "Review" are not). The hush step uses it to read a name in
+   * running text that no folder name vouches for. */
+  const plainName = (w) => inLists(w) && !WORDLIKE.has(w.toLowerCase());
+  /** On the first-name lists, and on the surname lists: each alone is weak evidence in running
+   * text, a first name followed by a surname is a person. */
+  const firstName = (w) => FIRST_SET.has(w.toLowerCase());
+  const surname = (w) => LAST_SET.has(w.toLowerCase());
+
+  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, plainName, firstName, surname, institution: (t) => INSTITUTION.test(t), lists: { FIRST, LAST, STREET } };
 })();
 globalThis.PDFSwapPII = PDFSwapPII;
 if (typeof module !== "undefined") module.exports = PDFSwapPII;
@@ -9599,6 +9703,10 @@ globalThis.PDFSwapCheck = PDFSwapCheck;
       render: (bytes, dpi, want, each, most) => OCR.renderPdf((b) => pdfjsLib.getDocument({ data: b.slice(), isEvalSupported: false, useSystemFonts: true, verbosity: 0 }).promise, bytes, dpi, want, each, most) });
   }
 
+  // the same reader for the text swap's attachments: started the first time a scan or photo is
+  // attached, null where this browser cannot run it
+  globalThis.PDFSwapScanReader = async () => { await ocrReader(); return ocrService(); };
+
   // ------------------------------------------------------------------ step 1: the folder
   // Chrome and Edge open the folder itself, which lists every folder in it, an empty one too, so
   // the copy can hold the same folders; another browser's file chooser lists only files
@@ -10025,6 +10133,1108 @@ globalThis.PDFSwapCheck = PDFSwapCheck;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   }
+})();
+
+/* ---- hush.js ---- */
+/* Identity Swap: hushing text for an AI chat, and restoring the AI's answer. Rules only.
+ *
+ * A preparer pastes a client email, a note or a document's text. Every name, SSN, EIN, phone,
+ * email, address, account number, ID and birth date is replaced with a tag such as [PERSON-1],
+ * [SSN-1] or [ADDRESS-1]. The hushed text goes to whichever AI the preparer uses; the AI answers
+ * in tags; the answer is pasted back and every tag becomes the real value again.
+ *
+ * The key (which tag stands for which value) lives in this tab's memory and is gone when the tab
+ * closes. It can be saved as a file locked with a passphrase (AES-256-GCM, the key drawn from the
+ * passphrase with PBKDF2-SHA-256), so an answer can be restored days later. Nothing here touches
+ * the network: the page that carries it forbids every request.
+ *
+ * One value keeps one tag for as long as the key is kept, across every paste, so a household
+ * reads the same in every message. The same finding rules the folder swap uses find the values
+ * (pii.js); a person's name in running text is also read from a run of capitalized words that
+ * holds a found name ("Marisol J Quillfeather"). A list of words to always hide (a client's
+ * name, an employer, a nickname) is hidden whether or not anything else finds it.
+ *
+ * Finding is a safety net, not a guarantee: the hushed text is searched again for every value
+ * hidden, and for anything that still reads as personal, before it is offered to copy.
+ */
+const PDFSwapHush = (() => {
+  "use strict";
+  const PII = () => globalThis.PDFSwapPII;
+
+  // which tag each kind of value takes; a state alone is left as it is (it identifies nobody and
+  // a tax answer often turns on it)
+  const TAG = { name: "PERSON", business: "BUSINESS", ssn: "SSN", ssn4: "SSN", ein: "EIN", phone: "PHONE", email: "EMAIL", street: "ADDRESS", unit: "UNIT",
+    city: "CITY", zip: "ZIP", zip4: "ZIP", acct: "ACCOUNT", card: "CARD", idnum: "ID", dob: "DOB", iddate: "DATE", custom: "HIDDEN" };
+  // kinds whose digits are the value, however they are spaced or punctuated
+  const DIGITS = new Set(["ssn", "ein", "phone", "acct", "card", "idnum"]);
+  // kinds that are numbers, so no letter glued to them ("AZ85711") may hide them
+  const NUMBERS = new Set(["zip", "zip4", "dob", "iddate"]);
+  // a word that opens a sentence or a greeting is never part of a name run
+  const OPENER = new Set(("hi hello hey dear thanks thank please regards best sincerely cheers attn attention re fwd fw cc " +
+    "mr mrs ms miss dr mx sir madam call ask tell email text meet see contact per note send forward ping remind invite").split(" "));
+  const TAG_TEXT = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/;
+  const LOOKS_LIKE_TAG = /\\?\[\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s*\\?\]/g;
+
+  const norm = (v) => String(v).replace(/\s+/g, " ").trim().toUpperCase();
+  const digitsOf = (v) => String(v).replace(/\D/g, "");
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const wordy = (s) => /^[\p{L}\p{N}]/u.test(s) || /[\p{L}\p{N}]$/u.test(s);
+
+  /** Whether a run of digits is a card number: 13 to 19 digits whose last is the Luhn check digit. */
+  function luhn(d) {
+    if (d.length < 13 || d.length > 19 || /^(\d)\1+$/.test(d)) return false;
+    let sum = 0;
+    for (let i = 0; i < d.length; i++) { let n = +d[d.length - 1 - i]; if (i % 2) { n *= 2; if (n > 9) n -= 9; } sum += n; }
+    return sum % 10 === 0;
+  }
+
+  /** A firm's client list (a CSV or text export from ProConnect, TaxDome, Canopy or a spreadsheet) as
+   * the people it names: [first, last] pairs ([""', last] for a surname alone), which `find` then
+   * treats as names it knows, so a client gets a person's tag wherever they turn up. Columns are
+   * found by their headers (Name, Client, Taxpayer, Spouse, First, Last); a list with no headers is
+   * read line by line. */
+  function clientList(text) {
+    const rows = String(text).split(/\r?\n/).filter((l) => l.trim()).map(splitCsv);
+    if (!rows.length) return [];
+    const head = rows[0].map((h) => h.trim().toLowerCase());
+    const col = (re) => head.findIndex((h) => re.test(h));
+    const fi = col(/^(first|first name|taxpayer first|given)/), la = col(/^(last|last name|surname|family|taxpayer last)/);
+    const named = head.map((h, i) => (/(^|\b)(name|client|taxpayer|spouse|dependent|contact)(\b|$)/.test(h) && i !== fi && i !== la ? i : -1)).filter((i) => i >= 0);
+    const hasHead = fi >= 0 || la >= 0 || named.length > 0;
+    const people = [];
+    for (const r of hasHead ? rows.slice(1) : rows) {
+      if (fi >= 0 && la >= 0 && r[fi] && r[la]) people.push([r[fi].trim(), r[la].trim()]);
+      for (const i of hasHead ? named : [0]) {
+        const v = (r[i] || "").trim();
+        if (!v || /\d/.test(v)) continue;
+        // "Last, First M", or "First M Last"; "&" or "and" joins a couple ("Marisol & Daniel Quillfeather")
+        const lf = /^([^,]+),\s*(.+)$/.exec(v);
+        const [lastPart, rest] = lf ? [lf[1].trim(), lf[2].trim()] : [v.split(/\s+/).at(-1), v.split(/\s+/).slice(0, -1).join(" ")];
+        const firsts = rest.split(/\s*(?:&|\band\b)\s*/i).filter(Boolean);
+        if (!firsts.length) people.push(["", lastPart]);
+        for (const f of firsts) people.push([f.split(/\s+/)[0], lastPart]);
+      }
+    }
+    const seen = new Set();
+    return people.filter(([f, l]) => (!f || /^\p{L}/u.test(f)) && /^\p{L}/u.test(l) && l.length >= 2 && !seen.has(f + "|" + l) && seen.add(f + "|" + l));
+  }
+  function splitCsv(line) {
+    const out = [];
+    let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === "," || ch === "\t" || ch === ";") { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out;
+  }
+
+  /** An empty key: which tag stands for which value. */
+  function newKey() { return { entries: [], counters: {} }; }
+
+  /** The entry a value already has in the key, or null. Digits-only kinds match on their digits. */
+  function lookup(key, kind, value) {
+    const n = norm(value), d = digitsOf(value);
+    return key.entries.find((e) => norm(e.value) === n || (DIGITS.has(kind) && DIGITS.has(e.kind) && d.length >= 4 && digitsOf(e.value) === d)) || null;
+  }
+  function nextTag(key, base) {
+    const taken = new Set(key.entries.map((e) => e.tag));
+    let n = key.counters[base] || 0, tag;
+    do { tag = base + "-" + ++n; } while (taken.has(tag));
+    key.counters[base] = n;
+    return tag;
+  }
+
+  const DATE = "(?:\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{1,2},?\\s+\\d{4}|\\d{1,2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{4})";
+  const BORN = new RegExp("\\b(?:born(?:\\s+on)?|birth\\s*date|date\\s+of\\s+birth|d\\.?o\\.?b\\.?|birthday)\\s*[:\\-]?\\s*(" + DATE + ")", "gi");
+  const COMPANY = /((?:[\p{Lu}][\p{L}0-9&'’.-]*[ \t]+){1,4}(?:LLC|L\.L\.C\.|PLLC|LLP|Inc\.?|INC\.?|Corp\.?|CORP\.?|Co\.|CO\.|Company|COMPANY|Ltd\.?|LTD\.?))(?![\p{L}])/gu;
+
+  // ---------------------------------------------------------------- text read from a picture
+  const STATE_CODES = "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC|PR";
+  /** Text an OCR engine read, with the spaces it tends to lose put back, so the rules read it as
+   * a person would: "Marisol JQuillfeather" is "Marisol J Quillfeather", "AZ85711" is "AZ 85711",
+   * "SSN:481-27-3306" is "SSN: 481-27-3306". Only for text read from a picture: a document's own
+   * text is never changed. */
+  function ocrText(text) {
+    return String(text)
+      .replace(/\b(\p{Lu})(\p{Lu}\p{Ll}{2,})/gu, "$1 $2")
+      .replace(new RegExp("\\b(" + STATE_CODES + ")(\\d{5})(?!\\d)", "g"), "$1 $2")
+      .replace(/([\p{L}]):(?=[\p{L}\p{N}(])/gu, "$1: ");
+  }
+
+  // ---------------------------------------------------------------- people in running text
+  // a run of capitalized words; a surname's lowercase particles ride inside it ("van der Berg", "de la Cruz")
+  const RUN = /[\p{Lu}][\p{L}'’-]*\.?(?:[ \t]+(?:(?:van|von|der|den|de|del|della|la|le|da|di|du|dos|bin|al)[ \t]+)*[\p{Lu}][\p{L}'’-]*\.?)*/gu;
+  const PARTICLE = /^(?:van|von|der|den|de|del|della|la|le|da|di|du|dos|bin|al)$/;
+  const isInitial = (w) => /^\p{Lu}\.?$/u.test(w);
+  const SUFFIX = /^(?:Jr|Sr|II|III|IV)\.?$/;
+  const HONORIFIC = /^(?:Mr|Mrs|Ms|Dr|Mx|St)\.$/;
+  const bare = (w) => w.replace(/[.,]$/, "").replace(/['’]s$/i, "");
+  // a label that says a person's name comes next
+  const PERSON_LABEL = /\b(?:taxpayer|spouse|client|dependent|child(?:\s*#?\d+)?|son|daughter|employee|recipient|beneficiary|owner|partner|member|shareholder|preparer|patient|tenant|borrower|contact|attn|attention|from|to|cc|for|with|meet|call|email|ask|tell|text|thanks|thank you|hi|hello|hey|dear)\s*[:,-]?\s*$/i;
+  // a role and a colon: what follows is a person's name, whatever the lists say of its words
+  const ROLE_LABEL = /\b(?:taxpayer|spouse|client|dependent|child(?:\s*#?\d+)?|son|daughter|employee|recipient|beneficiary|owner|partner|shareholder|patient|tenant|borrower|name|attn|attention)(?:['’]s)?(?:\s+name)?\s*:?\s*$/i;
+  // a form's label on the line above ("RECIPIENT'S name", "Employee's first name and initial Last name")
+  const LABEL_LINE = /\b(?:name|recipient|employee|taxpayer|spouse|borrower|student|beneficiary|owner)(?:['’]s)?(?:\s+name)?[^\n]{0,40}\n\s*$/i;
+  // words that name a part of a form or a document, never a person ("Schedule C Corporation")
+  const FORM_WORD = new Set("schedule form part section box line exhibit table appendix plan option class type unit building suite apt room floor phase item step chapter article figure page grade category tier level zone area sector block lot map team all everyone folks again".split(" "));
+  const LAST_FIRST = /(?<=^|["'\t;,]|\n)[ \t]*([\p{Lu}][\p{L}'’-]+),[ \t]+([\p{Lu}][\p{L}'’-]+)(?:[ \t]+(\p{Lu})\.?)?[ \t]*(?=["'\t;,]|\n|$|[ \t]+-)/gmu;
+  const GREETING = /\b(?:hi|hello|hey|dear|thanks|thank you)\s*,?\s*$/i;
+
+  /** Each person's name as written in the text. A stretch of capitalized words is a person when
+   * it holds a name already found, or reads first name then surname ("Jennifer Lopez"), or
+   * follows a label that names a person ("Taxpayer: Thomas O'Neil Jr."). A first name alone is a
+   * person after a greeting ("Hi Sarah,"). "Raman-Iyer" and "O'Neil" are judged by their parts. */
+  function personRuns(text, found, other = new Set()) {
+    const P = PII(), out = [];
+    // a particle word ("van der Berg") is judged by its capitalized part
+    const core = (w) => w.split(" ").at(-1);
+    const parts = (w) => bare(w).split(/[-–'’]/).filter((x) => x.length > 1);
+    const known = (w) => found.has(bare(w).toUpperCase()) || parts(w).some((x) => found.has(x.toUpperCase()));
+    const first = (w) => P.firstName(bare(w)) || known(w);
+    const last = (w0) => { const w = core(w0); return parts(w).length > 0 && parts(w).every((x) => P.surname(x) || found.has(x.toUpperCase())) || known(w); };
+    const opener = (w) => OPENER.has(bare(w).toLowerCase());
+    // a city, a state code or an acronym ("Denver", "CO", "IRS") is never a name word
+    const STATE = new Set(STATE_CODES.split("|"));
+    const place = (w) => other.has(bare(w).toUpperCase()) || STATE.has(bare(w)) ||
+      /^\p{Lu}{2,4}$/u.test(bare(w)) && !found.has(bare(w).toUpperCase()) && !P.firstName(bare(w)) && !P.surname(bare(w));
+    // after a label that names a person ("Spouse:"), a capitalized word no list holds is still a
+    // name, up to the next field ("Amount", "SSN")
+    const FIELD = /^(?:amount|address|ssn|tin|ein|phone|tel|email|e-mail|date|dob|total|due|tax|account|acct|employer|age|relationship|income|wages|balance|id)$/i;
+    const name = (w0) => { const w = core(w0); return !opener(w) && !place(w) && (first(w) || last(w) || P.plainName(bare(w)) || /^(?:O['’]|Mc|Mac|De|Di|Da|La|Le|Van|St\.?)\p{Lu}\p{Ll}/u.test(w)); };
+    // a family's surname: a capitalized word that follows two or more different first names
+    // ("Marisol J Quillfeather", "Daniel Quillfeather"), whatever the lists say of it
+    const after = new Map();
+    for (const m of text.matchAll(/([\p{Lu}][\p{L}'’-]+)[ \t]+(?:\p{Lu}\.?[ \t]+)?([\p{Lu}][\p{L}'’-]+)/gu)) {
+      if (!P.firstName(m[1]) || opener(m[1]) || place(m[2])) continue;
+      const k = bare(m[2]).toUpperCase();
+      if (!after.has(k)) after.set(k, new Set());
+      after.get(k).add(m[1].toUpperCase());
+    }
+    for (const [w, firsts] of after) if (firsts.size >= 2) found.add(w);
+    for (const m of text.matchAll(RUN)) {
+      // a particle joins the surname after it, so "van der Berg" is one word of the name
+      const words = [];
+      let pre = "";
+      for (const w of m[0].split(/[ \t]+/)) { if (PARTICLE.test(w)) { pre += w + " "; continue; } words.push(pre + w); pre = ""; }
+      const at = []; let k = m.index;
+      for (const w of words) { k = text.indexOf(w, k); at.push(k); k += w.length; }
+      for (let i = 0; i < words.length;) {
+        const after = ROLE_LABEL.test(text.slice(Math.max(0, at[i] - 30), at[i]));
+        const plainCap = (w0) => { const w = core(w0); return !FIELD.test(bare(w)) && !opener(w) && !place(w) && !FORM_WORD.has(bare(w).toLowerCase()) && /^\p{Lu}(?:\p{Ll}|\p{Lu}{2,})/u.test(w); };
+        const soft = !after && PERSON_LABEL.test(text.slice(Math.max(0, at[i] - 30), at[i]));
+        // "Priya K Kelllund", "Marisol J Quillfeather": a capitalized word, an initial and a capitalized
+        // word are a person, whether or not the lists know either name, unless a form word is in it
+        const afterInitial = (k) => k >= i + 2 && isInitial(words[k - 1]) && plainCap(words[k - 2]);
+        const ok = (w, k) => name(w) || ((after || soft) && k - i < 4 || afterInitial(k) || k === i && isInitial(words[i + 1] || "") && plainCap(words[i + 2] || "")) && plainCap(w);
+        if (!ok(words[i], i)) { i++; continue; }
+        let j = i;
+        while (j < words.length && (ok(words[j], j) || isInitial(words[j]) || SUFFIX.test(words[j]) && j > i)) {
+          j++;
+          // a suffix ends a name, and so does a full stop after a word longer than an initial
+          if (SUFFIX.test(words[j - 1]) || /\.$/.test(words[j - 1]) && !isInitial(words[j - 1]) && !HONORIFIC.test(words[j - 1])) break;
+        }
+        let end = j;
+        while (end > i && !ok(words[end - 1], end - 1) && !SUFFIX.test(words[end - 1])) end--;
+        let span = words.slice(i, end);
+        const before = text.slice(Math.max(0, at[i] - 30), at[i]), i0 = i;
+        const afterSpan = end > 0 ? text.slice(at[end - 1] + words[end - 1].length, at[end - 1] + words[end - 1].length + 3) : "";
+        i = j;
+        // a word before a person already known is not part of them ("Call Daniel Quillfeather")
+        while (span.length > 2 && !known(span[0]) && span.slice(1).filter((w) => !isInitial(w) && !SUFFIX.test(w)).length >= 2 &&
+          span.slice(1).filter((w) => !isInitial(w) && !SUFFIX.test(w)).every(known)) span.shift();
+        const named = span.filter((w) => !isInitial(w) && !SUFFIX.test(w));
+        if (!named.length) continue;
+        // a bank, a brokerage, a school or an agency is never a person ("Wells Fargo", "Charles Schwab")
+        if (P.institution(span.join(" "))) continue;
+        const nameish = (w) => name(w);
+        // after a role and a colon ("Spouse:"), the words are a name; after a softer word ("my spouse",
+        // "for", "call") only when one of them is a name the lists know
+        const above = text.slice(Math.max(0, at[i0] - 90), at[i0]);
+        const labelled = ROLE_LABEL.test(before) || LABEL_LINE.test(above) || PERSON_LABEL.test(before) && named.some(nameish);
+        const initialed = span.length === 3 && isInitial(span[1]) && named.every((w) => !FORM_WORD.has(bare(w).toLowerCase()) && !opener(w));
+        const vouched = named.some(known) || labelled || initialed || named.length >= 2 && first(named[0]) && last(named[named.length - 1]);
+        // one word alone: a known name, or after a greeting ("Thanks, Priya"), a first name or a
+        // capitalized word that ends the line or the clause
+        const greeted = GREETING.test(before) && (first(named[0]) || /^\s*(?:[,.!]|$)/.test(afterSpan) && !FORM_WORD.has(bare(named[0]).toLowerCase()));
+        if (named.length >= 2 ? !vouched : !(known(named[0]) || greeted)) continue;
+        let phrase = span.join(" ").replace(/,$/, "");
+        // "Quillfeather's" is the name; the 's stays in the text
+        phrase = phrase.replace(/['’]s$/i, "");
+        // a run that ends a sentence keeps its full stop out of the name, unless it is an initial or Jr.
+        const tail = span[span.length - 1];
+        if (/\.$/.test(phrase) && !isInitial(tail) && !SUFFIX.test(tail)) phrase = phrase.slice(0, -1);
+        out.push({ phrase, first: bare(named[0]), last: named.length > 1 ? bare(named[named.length - 1]) : null });
+      }
+    }
+    // "Quillfeather, Marisol J" as a spreadsheet, a CSV export or a folder name writes a client: a
+    // whole field or line, the surname, a comma, the first name and an initial
+    for (const m of text.matchAll(LAST_FIRST)) {
+      const [, lastW, firstW] = m;
+      if (P.institution(lastW + " " + firstW) || [lastW, firstW].some((w) => FORM_WORD.has(w.toLowerCase()) || FIELD.test(w) || OPENER.has(w.toLowerCase()) || STATE_CODES.split("|").includes(w))) continue;
+      if (!(first(firstW) || last(lastW) || known(lastW) || known(firstW) || m[3])) continue;
+      out.push({ phrase: m[0].trim().replace(/^["'\t;,]+|["'\t;,]+$/g, "").trim(), first: firstW, last: lastW });
+    }
+    return out;
+  }
+
+  /** What to hide in `text`: one entry per value, each with its tag (reusing the key's tag for a
+   * value it already holds) and every form it is written in. Nothing is added to the key until
+   * the text is hushed. */
+  function find(text, { key = newKey(), alwaysHide = [], clients = [] } = {}) {
+    const P = PII();
+    const { items } = P.detect([P.textProfile(text, "pasted.txt")]);
+    const draft = { entries: key.entries.slice(), counters: { ...key.counters } };
+    const plan = [];
+    const take = (kind, value, forms, source) => {
+      value = String(value).trim();
+      if (!value || !/[\p{L}\p{N}]/u.test(value)) return null;
+      // a business's first word on its own ("Brightspan") is the business already found in full
+      const had = plan.find((p) => norm(p.value) === norm(value) || kind === "business" && p.kind === "business" && norm(p.value).startsWith(norm(value) + " ") || (DIGITS.has(kind) && DIGITS.has(p.kind) && digitsOf(value).length >= 4 && digitsOf(p.value) === digitsOf(value)));
+      if (had) { for (const f of forms) if (!had.forms.includes(f)) had.forms.push(f); return had; }
+      const old = lookup(draft, kind, value);
+      const tag = old ? old.tag : nextTag(draft, kindTag(kind, source));
+      if (!old) draft.entries.push({ tag, kind, value });
+      const entry = { tag, kind, value, forms: [...new Set([value, ...forms])], checked: true, source, reused: !!old };
+      plan.push(entry);
+      return entry;
+    };
+
+    // the words to always hide come first, so they win over a smaller find inside them
+    for (const w of alwaysHide) if (String(w).trim()) take("custom", w, [], "your list");
+
+    // people: the full name first, then each of its words where it stands alone
+    const found = new Set([...items.values()].filter((i) => i.kind === "name" && i.checked).map((i) => i.display.toUpperCase()));
+    // the firm's own clients, from its client list, are people whatever the lists say of their names
+    for (const [f, l] of clients) for (const w of [f, ...String(l).split(/[\s-]+/), l]) if (w && w.length > 1) found.add(w.toUpperCase());
+    // a person hidden in an earlier paste is known in this one too
+    for (const e of key.entries) if (e.kind === "name") for (const w of String(e.value).split(/\s+/)) if (!isInitial(w)) found.add(bare(w).toUpperCase());
+    const people = [], singles = [];
+    const other = new Set([...items.values()].filter((i) => i.kind === "city" || i.kind === "state" || i.kind === "business").map((i) => i.display.toUpperCase()));
+    for (const run of personRuns(text, found, other)) {
+      // one word alone ("Hi Sarah,", "the Quillfeathers") is a name word, found below, not a person
+      if (!run.last) { singles.push(run.first); continue; }
+      let id = norm(run.first) + "|" + norm(run.last || "");
+      // "Quillfeather Marisol", as a file or folder name often puts it, is "Marisol Quillfeather"
+      const flipped = norm(run.last) + "|" + norm(run.first);
+      if (!people.some((p) => p.id === id) && !draft.entries.some((e) => e.person === id) &&
+          (people.some((p) => p.id === flipped) || draft.entries.some((e) => e.person === flipped))) id = flipped;
+      let person = people.find((p) => p.id === id);
+      if (!person) {
+        // "Marisol J Quillfeather" and "Marisol Quillfeather" are one person
+        const old = draft.entries.find((e) => e.kind === "name" && e.person === id);
+        const tag = old ? old.tag : nextTag(draft, "PERSON");
+        person = { id, tag, first: run.first, last: run.last, phrases: new Set() };
+        if (!old) draft.entries.push({ tag, kind: "name", value: run.phrase, person: id });
+        people.push(person);
+      }
+      person.phrases.add(run.phrase);
+    }
+    for (const person of people) {
+      const [value, ...more] = [...person.phrases].sort((a, b) => b.length - a.length);
+      const e = { tag: person.tag, kind: "name", value, forms: [...new Set([value, ...more])], checked: true, source: "name", reused: key.entries.some((k) => k.tag === person.tag), person: person.id };
+      plan.push(e);
+      if (person.last) {
+        // a first name or surname on its own ("Dear Marisol", "the Quillfeathers") is this person's
+        if (!plan.some((p) => norm(p.value) === norm(person.first))) plan.push(partOf(draft, person, "FIRST", person.first));
+        if (!plan.some((p) => norm(p.value) === norm(person.last))) plan.push(partOf(draft, person, "LAST", person.last));
+      }
+    }
+    for (const w of singles) if (!plan.some((p) => norm(p.value) === norm(w))) take("name", w, [], "name");
+    // a name word the finder found that no run explained
+    for (const it of items.values()) {
+      // a lone initial is never hidden by itself: it would hide every "J" in the text
+      if (it.kind !== "name" || !it.checked || it.display.length < 2 || plan.some((p) => norm(p.value) === norm(it.display))) continue;
+      take("name", it.display, [...(it.forms ? it.forms.keys() : [])], "name");
+    }
+    // a payment card number, 13 to 19 digits in groups, that passes the card networks' check digit (Luhn)
+    for (const m of text.matchAll(/(?<![\d-])(\d{4}(?:[ -]?\d{3,4}){2,4})(?![\d-])/g)) if (luhn(digitsOf(m[1]))) take("card", m[1], [], "card");
+    // an account number after its label, with words between ("Account number (see instructions) 9923613648")
+    for (const m of text.matchAll(/\b(?:account|acct)\.?\b[^\d\n]{0,40}?(\d[\d-]{5,}\d)(?!\d)/gi)) take("acct", m[1], [], "acct");
+    // a birth date in any common form, after the words that say it is one
+    for (const m of text.matchAll(BORN)) take("dob", m[1], [], "dob");
+    // a business by its legal ending ("Acme Plumbing Inc"), when the finder had no file to judge it by
+    for (const m of text.matchAll(COMPANY)) {
+      // a label before the name is not the name ("Employer Brightspan Digital LLC")
+      const name = m[1].trim().replace(/^(?:(?:employer|payer|payor|client|company|business|firm|vendor|customer|lender|from|to|for|at|with)(?:['’]s)?:?\s+)+/i, "");
+      if (name.split(/\s+/).length > 1 && !/\b(?:bank|university|college|insurance|internal revenue|department)\b/i.test(name)) take("business", name, [], "business");
+    }
+    // everything else the finder found, in the order it reads
+    for (const it of items.values()) {
+      if (it.kind === "name" || it.kind === "state" || !it.checked || !TAG[it.kind]) continue;
+      take(it.kind, it.display, [...(it.variants || []), ...(it.forms ? it.forms.keys() : [])], it.kind);
+    }
+    // whatever the key already hides, wherever it turns up again ("the Quillfeathers' accountant")
+    for (const e of key.entries) {
+      if (plan.some((p) => p.tag === e.tag || norm(p.value) === norm(e.value))) continue;
+      const forms = e.forms && e.forms.length ? e.forms : [e.value];
+      if (forms.some((f) => new RegExp(patternFor(e, f), "iu").test(text))) plan.push({ tag: e.tag, kind: e.kind, value: e.value, forms: forms.slice(), checked: true, source: "key", reused: true, person: e.person });
+    }
+    // a business's full name ("Brightspan Digital LLC") is the business, not just its first word
+    const BIZ = /\b(?:LLC|L\.L\.C\.|PLLC|LLP|Inc\.?|Corp\.?|Co\.|Company|Ltd\.?)(?![A-Za-z])/;
+    for (const e of plan.filter((p) => p.kind === "business")) {
+      const rx = new RegExp("(?<![\\p{L}\\p{N}])" + esc(e.value) + "(?:[ \\t]+[\\p{Lu}][\\p{L}&'’.-]*){0,4}", "giu");
+      for (const m of text.matchAll(rx)) {
+        const full = m[0].match(new RegExp("^.*?" + BIZ.source))?.[0];
+        if (full && !e.forms.includes(full)) e.forms.unshift(full);
+      }
+    }
+    return plan;
+  }
+  function kindTag(kind, source) { return kind === "custom" ? "HIDDEN" : TAG[kind] || "HIDDEN"; }
+  function partOf(draft, person, part, word) {
+    // a surname the household shares keeps the tag it was first given
+    const had = draft.entries.find((e) => e.kind === "name" && !e.person && norm(e.value) === norm(word));
+    if (had) return { tag: had.tag, kind: "name", value: word, forms: [word], checked: true, source: "name", reused: true, part };
+    const tag = person.tag + "-" + part;
+    if (!draft.entries.some((e) => e.tag === tag)) draft.entries.push({ tag, kind: "name", value: word });
+    return { tag, kind: "name", value: word, forms: [word], checked: true, source: "name", reused: false, part };
+  }
+
+  // ---------------------------------------------------------------- hushing
+  /** One pattern per form: whole words only (so "Ann" never hides inside "Annual"), any
+   * capitals; a number of digits however it is spaced ("481-27-3306", "481 27 3306",
+   * "481273306"). */
+  function patternFor(entry, form, loose = false) {
+    if (DIGITS.has(entry.kind) && digitsOf(form).length >= 4) {
+      const d = digitsOf(form).split("");
+      // a phone's area code in brackets is hidden with its brackets: "([PHONE-1]" would be odd
+      return (entry.kind === "phone" ? "(?:\\(\\s?)?" : "") + "(?<!\\d)" + d.join("[\\s.\\-/()]{0,2}") + "(?!\\d)";
+    }
+    if (NUMBERS.has(entry.kind) && /^\d/.test(form)) return "(?<!\\d)" + esc(form).replace(/\s+/g, "\\s+") + "(?!\\d)";
+    // text an OCR engine read may lose the space between words ("Marisol JQuillfeather")
+    const body = esc(form).replace(/\s+/g, loose ? "\\s*" : "\\s+");
+    return (wordy(form) ? "(?<![\\p{L}\\p{N}])" : "") + body + (wordy(form) ? "(?![\\p{L}\\p{N}])" : "");
+  }
+  function matcher(entries, loose = false) {
+    const pairs = [];
+    for (const e of entries) for (const f of e.forms) pairs.push({ e, f });
+    // the longest form first, so a full name is hidden before its first name
+    pairs.sort((a, b) => b.f.length - a.f.length);
+    if (!pairs.length) return null;
+    return { rx: new RegExp(pairs.map((p) => "(" + patternFor(p.e, p.f, loose) + ")").join("|"), "giu"), pairs };
+  }
+
+  /** The text with every ticked entry replaced by its tag, and the key grown by those entries. */
+  function hush(text, plan, key = newKey()) {
+    const on = plan.filter((p) => p.checked);
+    const m = matcher(on);
+    let count = 0;
+    const hushed = m ? text.replace(m.rx, (...args) => {
+      const groups = args.slice(1, 1 + m.pairs.length);
+      const k = groups.findIndex((g) => g !== undefined);
+      count++;
+      return "[" + m.pairs[k].e.tag + "]";
+    }) : text;
+    for (const e of on) {
+      const had = key.entries.find((k) => k.tag === e.tag);
+      if (had) { had.forms = [...new Set([...(had.forms || [had.value]), ...e.forms])]; continue; }
+      key.entries.push({ tag: e.tag, kind: e.kind, value: e.value, forms: e.forms.slice(), person: e.person });
+      const base = e.tag.replace(/-\d+(?:-(?:FIRST|LAST))?$/, "");
+      const n = +(/-(\d+)(?:-(?:FIRST|LAST))?$/.exec(e.tag) || [0, 0])[1];
+      if (n > (key.counters[base] || 0)) key.counters[base] = n;
+    }
+    return { text: hushed, count, leaks: leaks(hushed, on) };
+  }
+
+  /** The swaps a file needs, for the folder swap's own engines (PDF, Word, Excel, PowerPoint):
+   * each place a ticked entry matches in the file's text, as the exact characters printed there,
+   * with its tag. An engine replaces exact text, so "481 27 3306" and "481-27-3306" are each a
+   * row of their own. Longest first, so a full name is replaced before its first name. */
+  function rowsFor(text, plan, { loose = false } = {}) {
+    const on = plan.filter((p) => p.checked);
+    const m = matcher(on, loose);
+    const rows = new Map();
+    if (m) for (const hit of String(text).matchAll(m.rx)) {
+      const k = hit.slice(1, 1 + m.pairs.length).findIndex((g) => g !== undefined);
+      const find = hit[0], replace = "[" + m.pairs[k].e.tag + "]";
+      if (!rows.has(find)) rows.set(find, { find, replace, label: m.pairs[k].e.kind, tag: m.pairs[k].e.tag });
+    }
+    return [...rows.values()].sort((a, b) => b.find.length - a.find.length).map((r, i) => ({ id: i + 1, ...r }));
+  }
+
+  /** Every hidden value still in the hushed text (none, when hushing worked), and anything else
+   * the finder still reads as personal there. */
+  function leaks(hushed, entries) {
+    const plain = hushed.replace(LOOKS_LIKE_TAG, " ");
+    const left = [];
+    for (const e of entries) for (const f of e.forms) {
+      if (new RegExp(patternFor(e, f), "iu").test(plain)) { left.push({ tag: e.tag, value: e.value, why: "still in the text" }); break; }
+    }
+    const P = PII();
+    const { items } = P.detect([P.textProfile(plain, "hushed.txt")]);
+    for (const it of items.values()) {
+      if (!it.checked || it.kind === "state") continue;
+      left.push({ tag: null, value: it.display, kind: it.kind, why: "still reads as " + (TAG[it.kind] || it.kind).toLowerCase() });
+    }
+    return left;
+  }
+
+  // ---------------------------------------------------------------- restoring
+  /** The AI's answer with every tag the key knows replaced by its value. An AI may write a tag
+   * with spaces inside the brackets or escape the brackets as Markdown; both still restore. Tags
+   * the key does not know are listed, never guessed. */
+  function restore(answer, key) {
+    const byTag = new Map(key.entries.map((e) => [e.tag.toUpperCase(), e.value]));
+    const restored = new Map(), unknown = new Set();
+    const text = String(answer).replace(LOOKS_LIKE_TAG, (all, tag) => {
+      const v = byTag.get(tag.toUpperCase());
+      if (v === undefined) { unknown.add(tag); return all; }
+      restored.set(tag.toUpperCase(), (restored.get(tag.toUpperCase()) || 0) + 1);
+      return v;
+    });
+    // a tag the user renamed to a word without a number ("[SPOUSE]") restores too
+    const plainTags = key.entries.filter((e) => !/-/.test(e.tag));
+    const out = plainTags.length ? text.replace(new RegExp("\\\\?\\[\\s*(" + plainTags.map((e) => esc(e.tag)).join("|") + ")\\s*\\\\?\\]", "gi"), (all, tag) => {
+      restored.set(tag.toUpperCase(), (restored.get(tag.toUpperCase()) || 0) + 1);
+      return byTag.get(tag.toUpperCase());
+    }) : text;
+    return { text: out, restored: [...restored].map(([tag, n]) => ({ tag, n })), unknown: [...unknown] };
+  }
+
+  /** A new name for a tag in the plan and the key: capitals, digits and hyphens, unused. Its first
+   * and last name tags follow it ("PERSON-2" to "SPOUSE" makes "SPOUSE-FIRST"). */
+  function renameTag(plan, key, from, to) {
+    to = String(to).trim().replace(/^\[|\]$/g, "").toUpperCase();
+    if (!TAG_TEXT.test(to)) return "Use capital letters, digits and hyphens, e.g. SPOUSE or CHILD-1.";
+    const all = new Set([...plan.map((p) => p.tag), ...key.entries.map((e) => e.tag)]);
+    if (to !== from && all.has(to)) return "[" + to + "] already stands for something else.";
+    const move = (t) => (t === from ? to : t.startsWith(from + "-") && /-(FIRST|LAST)$/.test(t) ? to + t.slice(from.length) : t);
+    for (const p of plan) p.tag = move(p.tag);
+    for (const e of key.entries) e.tag = move(e.tag);
+    return null;
+  }
+
+  // ---------------------------------------------------------------- the locked key
+  const FORMAT = "identity-swap-hush-key", ITERATIONS = 600000;
+  const b64 = (bytes) => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  async function derive(passphrase, salt, iterations) {
+    const subtle = globalThis.crypto.subtle;
+    const base = await subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+    return subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  }
+  /** The key, and the words to always hide, as a file only the passphrase opens. */
+  async function lock(key, alwaysHide, passphrase, clients = []) {
+    if (!passphrase || passphrase.length < 8) throw new Error("Use a passphrase of at least 8 characters.");
+    const salt = globalThis.crypto.getRandomValues(new Uint8Array(16)), iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+    const plain = new TextEncoder().encode(JSON.stringify({ entries: key.entries, counters: key.counters, alwaysHide, clients }));
+    const data = new Uint8Array(await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv }, await derive(passphrase, salt, ITERATIONS), plain));
+    return JSON.stringify({ format: FORMAT, version: 1, cipher: "AES-256-GCM", kdf: "PBKDF2-SHA-256", iterations: ITERATIONS, salt: b64(salt), iv: b64(iv), data: b64(data) });
+  }
+  /** The key and the words to always hide, from a locked file and its passphrase. */
+  async function unlock(fileText, passphrase) {
+    let f;
+    try { f = JSON.parse(fileText); } catch (e) { throw new Error("This is not a saved key."); }
+    if (!f || f.format !== FORMAT || f.version !== 1) throw new Error("This is not a saved key.");
+    let plain;
+    try {
+      plain = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv) }, await derive(passphrase, unb64(f.salt), f.iterations), unb64(f.data));
+    } catch (e) { throw new Error("That passphrase does not open this key."); }
+    const got = JSON.parse(new TextDecoder().decode(plain));
+    return { key: { entries: got.entries || [], counters: got.counters || {} }, alwaysHide: got.alwaysHide || [], clients: got.clients || [] };
+  }
+
+  return { TAG, newKey, find, hush, rowsFor, ocrText, clientList, luhn, leaks, restore, renameTag, lock, unlock, personRuns };
+})();
+globalThis.PDFSwapHush = PDFSwapHush;
+if (typeof module !== "undefined") module.exports = PDFSwapHush;
+
+/* ---- attach.js ---- */
+/* Identity Swap: attachments for an AI chat. A PDF, Word, Excel, PowerPoint or text file in, the
+ * same file out with every personal value replaced by the tag the text swap gave it, so the
+ * attachment and the message read as one: [PERSON-1] in the email is [PERSON-1] in the W-2.
+ *
+ * Word, Excel and PowerPoint files are changed inside their own parts by the folder swap's Office
+ * engine: formulas, numbers, tables and layout stay. A PDF is first changed in place by the folder
+ * swap's PDF engine, in the PDF's own fonts, and kept only when every value was replaced and the
+ * engine's checks pass (nothing of the original left, no word running into the next). When it
+ * cannot be (a font that lacks "[" or "]", which most embedded fonts do, or a tag too wide for
+ * where its value is printed), the PDF comes back as a text PDF: its text, page by page, with the
+ * tags, set in Helvetica. An AI reads a PDF's text either way; the text PDF says on each page
+ * that it is one.
+ *
+ * Every file is read back after it is made and searched for every value hidden. A file that still
+ * holds one is never offered. Nothing here touches the network.
+ */
+const PDFSwapAttach = (() => {
+  "use strict";
+  const F = () => globalThis.PDFSwapFolder, H = () => globalThis.PDFSwapHush, E = () => globalThis.PDFSwapEngine, P = () => globalThis.PDFSwapPII;
+
+  /** What a file is and what it says. `problem` is set when it cannot be swapped here. */
+  async function read(name, bytes, { ocr = null } = {}) {
+    const kind = F().kindOf(name);
+    const att = { name, bytes, kind, text: "", pages: [], problem: null, status: null, ocr };
+    if (!/^(pdf|office|text)$/.test(kind) && !(kind === "picture" && ocr && ocr.canRead(name))) {
+      att.problem = kind === "picture" ? "a picture, and the reader for scans and photos is not available here: the folder swap in Chrome or Edge reads them" : "not a kind of file this can change (PDF, Word, Excel, PowerPoint, text, or a scan or photo)";
+      return att;
+    }
+    const file = { path: name, size: bytes.length, read: async () => bytes };
+    const { profiles, status } = await F().analyze([file], { ocr });
+    att.status = status;
+    const st = status.get(name) || {};
+    if (st.state !== "ok") {
+      att.problem = st.state === "scan" ? (ocr ? "a picture with no text the reader could find" : "its pages are pictures (a scan), and the reader for scans is not available here: the folder swap in Chrome or Edge reads them") : st.why || "it could not be read";
+      return att;
+    }
+    const byPage = new Map();
+    for (const prof of profiles) for (const part of prof.parts) {
+      const k = part.page ?? 0;
+      if (!byPage.has(k)) byPage.set(k, []);
+      byPage.get(k).push(part.text);
+    }
+    att.pages = [...byPage].sort((a, b) => a[0] - b[0]).map(([page, texts]) => ({ page, text: texts.join("\n") }));
+    att.text = att.pages.map((p) => p.text).join("\n");
+    if (!att.text.trim()) att.problem = "no text could be read from it";
+    return att;
+  }
+
+  /** The tagged file's name: its own name with the plan's tags ("Quillfeather W2.pdf" becomes
+   * "[PERSON-1-LAST] W2 (swapped).pdf"), "(swapped)" before the kind. A name written with
+   * underscores is read with spaces and written with underscores again. */
+  function nameFor(att, plan, ext) {
+    const dot = att.name.lastIndexOf(".");
+    const stem = dot > 0 ? att.name.slice(0, dot) : att.name, kind = dot > 0 ? att.name.slice(dot) : "";
+    const under = stem.includes("_") && !stem.includes(" ");
+    let neu = H().hush(under ? stem.replace(/_/g, " ") : stem, plan, H().newKey()).text;
+    if (under) neu = neu.replace(/ /g, "_");
+    return neu + " (swapped)" + (ext || kind);
+  }
+
+  /** The file with every ticked value of `plan` replaced by its tag:
+   * { bytes, name, how: "layout kept" | "text only" | "nothing to swap", count, notes } or
+   * { problem } when no safe copy could be made. */
+  async function swap(att, plan) {
+    if (att.problem) return { problem: att.problem };
+    // text read from a picture (a scan, a photo, a picture on a PDF's page) may have lost spaces
+    const rows = H().rowsFor(att.text, plan, { loose: !!att.ocr && att.kind !== "office" });
+    if (!rows.length) return { bytes: att.bytes, name: nameFor(att, plan), how: "nothing to swap", count: 0, notes: [] };
+    let made = null;
+    if (att.kind === "pdf") {
+      // first in the PDF's own fonts; then, for a font that cannot draw a tag, by taking the value
+      // out and drawing its tag over the gap; only when neither can, a text PDF of its pages
+      // text is swapped word for word (a name of three words becomes its tag and two empty words);
+      // a scanned page is painted, and a tag laid across the whole value paints best there
+      const scanned = ((att.status.get(att.name) || {}).scanned || 0) > 0;
+      const padded = scanned ? rows : rows.map((r) => ({ ...r, replace: r.replace + " ".repeat(r.find.split(" ").length - 1) }));
+      const inPlace = await runEngine(att, padded);
+      const over = inPlace.bytes ? null : await overlay(att, rows).catch((e) => ({ why: e.message }));
+      if (inPlace.bytes) made = { bytes: inPlace.bytes, how: "layout kept", ext: ".pdf", warnings: inPlace.warnings };
+      else if (over && over.bytes) made = { bytes: over.bytes, how: "layout kept", ext: ".pdf", drawn: true };
+      else made = { bytes: await textPdf(att, plan), how: "text only", ext: ".pdf", why: (over && over.why) || inPlace.why };
+    } else if (att.kind === "office") {
+      const got = await runEngine(att, rows);
+      if (!got.bytes) return { problem: "it could not be swapped: " + got.why };
+      made = { bytes: got.bytes, how: "layout kept" };
+    } else if (att.kind === "picture") {
+      // a scan or photo: each value painted over with its tag, as the folder swap paints a stand-in
+      const got = await runEngine(att, rows);
+      if (!got.bytes) return { problem: "it could not be swapped: " + got.why };
+      made = { bytes: got.bytes, how: "layout kept", ext: got.ext, warnings: got.warnings };
+    } else {
+      const enc = (att.status.get(att.name) || {}).enc || "utf-8";
+      const text = F().decodeText(att.bytes).text;
+      made = { bytes: F().encodeText(H().hush(text, plan, H().newKey()).text, enc), how: "layout kept" };
+    }
+    // read back: no hidden value may be left anywhere in what is offered
+    const backName = made.ext ? att.name.replace(/\.[^./]+$/, made.ext) : att.name;
+    const back = await read(backName, made.bytes, { ocr: att.ocr || null });
+    if (back.problem && !back.text) return { problem: "the swapped copy could not be read back to check it (" + back.problem + "), so it is not offered" };
+    const left = H().leaks(back.text, plan.filter((p) => p.checked));
+    const stuck = left.filter((l) => l.tag);
+    if (stuck.length) return { problem: "the swapped copy still held " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ", so it is not offered" };
+    const notes = (made.warnings || []).map((w) => "Look at: " + w);
+    if (made.drawn) notes.push("The PDF's own fonts could not draw the tags, so each value was taken out and its tag drawn in its place; the page is otherwise as it was.");
+    if (made.how === "text only") notes.push("The PDF's own fonts could not show the tags in place (" + made.why + "), so this is a text PDF of its pages: the words are all there, the layout is not.");
+    const still = left.filter((l) => !l.tag);
+    if (still.length) notes.push("Still reads as personal: " + [...new Set(still.map((l) => l.value))].slice(0, 6).join(", ") + ". Add it to the words to always hide, or leave it if it is not.");
+    return { bytes: made.bytes, name: nameFor(att, plan, made.ext), how: made.how, count: rows.length, notes };
+  }
+
+  /** The folder swap's own engine on one file: the swapped bytes, or why not. */
+  async function runEngine(att, rows) {
+    let out = null;
+    const file = { path: att.name, size: att.bytes.length, read: async () => att.bytes };
+    let ext = null;
+    const [r] = await F().run([file], rows, att.status, { include: () => false, ocr: att.ocr || null, write: async (p, b) => { out = b; ext = /\.[^./]+$/.exec(p)?.[0] || null; } });
+    return r && r.result === "swapped" && out ? { bytes: out, ext, warnings: r.warnings || [] } : { why: (r && r.why) || "the engine did not write it" };
+  }
+
+  // ---------------------------------------------------------------- restoring a file the AI gave back
+  /** A file an AI handed back, with every tag the key knows replaced by its real value: Word, Excel
+   * and PowerPoint inside their own parts, a PDF in its own fonts or with the value drawn where the
+   * tag was, a text file as text. Read back after: no tag the key knows may be left.
+   * { bytes, name, count, notes } or { problem }. */
+  async function restoreFile(att, key) {
+    if (att.problem) return { problem: att.problem };
+    const byTag = new Map(key.entries.map((e) => ["[" + e.tag + "]", e.value]));
+    const rows = [...byTag].filter(([tag]) => att.text.includes(tag)).sort((a, b) => b[0].length - a[0].length)
+      .map(([find, replace], i) => ({ id: i + 1, find, replace, label: "restore" }));
+    const restoredName = (ext) => {
+      const dot = att.name.lastIndexOf(".");
+      const stem = H().restore(dot > 0 ? att.name.slice(0, dot) : att.name, key).text.replace(/ \(swapped\)$/, "");
+      return stem + " (restored)" + (ext || (dot > 0 ? att.name.slice(dot) : ""));
+    };
+    if (!rows.length) return { problem: "no tag this key knows is in it: open the key that swapped its text first" };
+    let bytes = null, notes = [];
+    if (att.kind === "office") {
+      const got = await runEngine(att, rows);
+      if (!got.bytes) return { problem: "it could not be restored: " + got.why };
+      bytes = got.bytes;
+    } else if (att.kind === "pdf") {
+      const padded = rows.map((r) => ({ ...r, replace: r.replace.split(" ").length === r.find.split(" ").length ? r.replace : r.replace.replace(/ /g, "\u00a0") }));
+      const inPlace = await runEngine(att, padded);
+      if (inPlace.bytes) bytes = inPlace.bytes;
+      else {
+        const over = await overlay(att, rows, { fit: false }).catch((e) => ({ why: e.message }));
+        if (!over.bytes) return { problem: "it could not be restored: " + over.why };
+        bytes = over.bytes;
+        notes.push("Its fonts could not write the real values, so each tag was taken out and its value drawn in its place.");
+      }
+    } else {
+      const enc = (att.status.get(att.name) || {}).enc || "utf-8";
+      bytes = F().encodeText(H().restore(F().decodeText(att.bytes).text, key).text, enc);
+    }
+    const back = await read(att.name, bytes);
+    const still = rows.filter((r) => back.text.includes(r.find)).map((r) => r.find);
+    if (still.length) return { problem: "the restored copy still held " + still.join(", ") + ", so it is not offered" };
+    const unknown = [...new Set((att.text.match(/\[[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\]/g) || []).filter((t) => !byTag.has(t)))];
+    if (unknown.length) notes.push("This key does not know " + unknown.join(", ") + ", so " + (unknown.length === 1 ? "it is" : "they are") + " left as written.");
+    return { bytes, name: restoredName(), count: rows.length, notes };
+  }
+
+  // ---------------------------------------------------------------- tags drawn over the page
+  /** The PDF with each value taken out by the engine (taking a letter out needs no letter the font
+   * lacks, and the text after it stays where it was) and its tag drawn where the value began, on
+   * its baseline, in Helvetica, at the value's size or smaller so it fits the value's width. The
+   * engine's own checks must pass: every value out, nothing else moved. { bytes } or { why }. */
+  async function overlay(att, rows, { fit = true } = {}) {
+    const L = globalThis.PDFLib;
+    // every word of the value emptied: the tag is drawn, not written into the font's text
+    const blanks = rows.map((r) => ({ ...r, replace: r.find.split(" ").map(() => "").join(" ") }));
+    const res = await E().swap(att.bytes, blanks, { forms: true, metadata: true });
+    if (res.skipped) return { why: res.skipped };
+    const missed = res.occurrences.filter((o) => !o.replaced);
+    if (missed.length) return { why: missed.length + " of " + res.occurrences.length + " could not be taken out: " + [...new Set(missed.map((o) => o.reason))].join("; ") };
+    if (!res.output) return { why: "the engine wrote nothing" };
+    const checks = await E().selfCheck(att.bytes, res, blanks, { forms: true, metadata: true });
+    const failed = checks.filter((c) => !c.passed);
+    if (failed.length) return { why: "check failed: " + failed.map((c) => c.name + (c.detail ? " (" + c.detail + ")" : "")).join("; ") };
+    // the page's own text as it was, to measure the room after a value up to the next word on its line
+    const before = fit ? null : (await E().open(att.bytes, { forms: true })).model;
+    const roomAfter = (pageIx, g0, along, skip) => {
+      let best = Infinity;
+      for (const part of before.parts) for (const use of part.uses) {
+        if (use.page !== pageIx) continue;
+        use.geo.forEach((x, i) => {
+          if (skip.has(part.key + ":" + i) || !part.glyphs[i]) return;
+          const d = along(x.x, x.y), off = Math.abs((x.y - g0.y) * g0.ux - (x.x - g0.x) * g0.uy);
+          if (d > 0.5 && off < g0.em * 0.5 && d < best) best = d;
+        });
+      }
+      return best;
+    };
+    const doc = await L.PDFDocument.load(res.output, { updateMetadata: false });
+    const font = await doc.embedFont(L.StandardFonts.Helvetica);
+    const pages = doc.getPages();
+    const byKey = new Map(res.before.map((b) => [b.key, b]));
+    let drawn = 0;
+    for (const o of res.occurrences) {
+      if (!o.part) continue;
+      let tag = rows.find((r) => r.id === o.row.id)?.replace;
+      const b = byKey.get(o.part);
+      if (!b || !tag) continue;
+      for (const use of b.uses) {
+        const g = o.span.map((i) => use.geo[i]).filter(Boolean);
+        if (!g.length) continue;
+        // the value's first line: a value wrapped onto a second line keeps its tag on the first
+        const line = g.filter((x) => Math.abs((x.y - g[0].y) * g[0].ux - (x.x - g[0].x) * g[0].uy) < g[0].em * 0.5);
+        const along = (x, y) => (x - g[0].x) * g[0].ux + (y - g[0].y) * g[0].uy;
+        const width = Math.max(...line.map((x) => along(x.ex, x.ey)));
+        // the spaces between the value's words stay in the page's text, where its first word began:
+        // the tag starts after them, so a reader meets the spaces, then the tag whole
+        const find = o.row.find;
+        const lead = o.span.length === find.length ? [...find].reduce((n, ch, i) => n + (ch === " " && g[i] ? along(g[i].ex, g[i].ey) - along(g[i].x, g[i].y) : 0), 0) : 0;
+        const pageIx = typeof use.page === "number" ? use.page : o.page;
+        // a tag fits where its value was; a restored value fits up to the next word on its line
+        const skip = new Set(o.span.map((i) => o.part + ":" + i));
+        const room = fit ? Math.max(1, width - lead) : Math.max(1, Math.min(roomAfter(pageIx, g[0], along, skip), 2000) - g[0].em * 0.25);
+        // never below 4 pt, and a restored value never below 60% of its line's size: it is read by a person
+        const size = Math.max(fit ? 4 : g[0].em * 0.6, Math.min(g[0].em, g[0].em * room / Math.max(1, font.widthOfTextAtSize(tag, g[0].em))));
+        const page = pages[pageIx];
+        if (!page) continue;
+        // Helvetica writes Windows-1252; a letter outside it is written as "?"
+        tag = [...tag].map((ch) => { try { font.encodeText(ch); return ch; } catch (e) { return "?"; } }).join("");
+        page.drawText(tag, { x: g[0].x + lead * g[0].ux, y: g[0].y + lead * g[0].uy, size, font, color: L.rgb(0, 0, 0), rotate: L.degrees(Math.atan2(g[0].uy, g[0].ux) * 180 / Math.PI) });
+        drawn++;
+      }
+    }
+    if (!drawn) return { why: "no tag could be placed" };
+    return { bytes: await doc.save({ useObjectStreams: false }) };
+  }
+
+  // ---------------------------------------------------------------- the text PDF
+  const PAGE = [612, 792], MARGIN = 54, SIZE = 10, LEAD = 13.5;
+  /** The PDF's text, tagged, page by page in Helvetica. Each page of the original starts a page of
+   * its own (and runs on to more when it is long), headed with where it came from. */
+  async function textPdf(att, plan) {
+    const L = globalThis.PDFLib;
+    const doc = await L.PDFDocument.create();
+    const font = await doc.embedFont(L.StandardFonts.Helvetica), bold = await doc.embedFont(L.StandardFonts.HelveticaBold);
+    // a character Helvetica cannot write (outside Windows-1252) is written as "?"
+    const safe = (s) => [...s].map((ch) => { try { font.encodeText(ch); return ch; } catch (e) { return "?"; } }).join("");
+    const width = PAGE[0] - 2 * MARGIN;
+    const wrap = (line) => {
+      const out = [];
+      let cur = "";
+      for (const w of line.split(/(\s+)/)) {
+        if (font.widthOfTextAtSize(cur + w, SIZE) <= width) { cur += w; continue; }
+        if (cur.trim()) out.push(cur.trimEnd());
+        cur = w.trimStart();
+        // one word wider than the page is cut where it must be
+        while (font.widthOfTextAtSize(cur, SIZE) > width) {
+          let k = cur.length;
+          while (k > 1 && font.widthOfTextAtSize(cur.slice(0, k), SIZE) > width) k--;
+          out.push(cur.slice(0, k)); cur = cur.slice(k);
+        }
+      }
+      out.push(cur.trimEnd());
+      return out;
+    };
+    const total = att.pages.length;
+    for (const pg of att.pages) {
+      const tagged = H().hush(pg.text, plan, H().newKey()).text;
+      const lines = tagged.split(/\r\n|\r|\n/).map(safe).flatMap(wrap);
+      let page = null, y = 0, cont = false;
+      const start = () => {
+        page = doc.addPage(PAGE);
+        y = PAGE[1] - MARGIN;
+        page.drawText("Page " + (pg.page + 1) + " of " + total + (cont ? ", continued" : "") + ". Text only: personal details are replaced by tags.", { x: MARGIN, y, size: 8.5, font: bold, color: L.rgb(0.31, 0.37, 0.47) });
+        y -= LEAD * 1.8;
+        cont = true;
+      };
+      start();
+      for (const line of lines) {
+        if (y < MARGIN) start();
+        if (line) page.drawText(line, { x: MARGIN, y, size: SIZE, font, color: L.rgb(0.08, 0.13, 0.24) });
+        y -= LEAD;
+      }
+    }
+    // nothing about the original in the file's own details: no title, author or dates of its
+    doc.setProducer("Identity Swap"); doc.setCreator("Identity Swap");
+    return await doc.save({ useObjectStreams: false });
+  }
+
+  return { read, swap, restoreFile, nameFor, textPdf, overlay };
+})();
+globalThis.PDFSwapAttach = PDFSwapAttach;
+if (typeof module !== "undefined") module.exports = PDFSwapAttach;
+
+/* ---- hushui.js ---- */
+/* Identity Swap: the page's second mode. Swap text for an AI chat, restore the answer, keep or
+ * lock the key, and check for yourself that the page reaches no network. */
+(() => {
+  "use strict";
+  const H = PDFSwapHush;
+  const $ = (id) => document.getElementById(id);
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else if (k === "text") n.textContent = v; else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) n.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    return n;
+  }
+  const fill = (node, ...kids) => node.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
+  const plural = (n, one, many) => n + " " + (n === 1 ? one : many || one + "s");
+  const clone = (key) => JSON.parse(JSON.stringify(key));
+  const KIND = { name: "Name", business: "Business", ssn: "SSN", ssn4: "SSN", ein: "EIN", phone: "Phone", email: "Email", street: "Street", unit: "Suite / unit", city: "City", zip: "ZIP", zip4: "ZIP+4", acct: "Account", idnum: "ID number", dob: "Birth date", iddate: "Date", custom: "Your list" };
+
+  // the key lives here, in this tab's memory, and nowhere else unless it is saved locked
+  const S = { key: H.newKey(), alwaysHide: [], clients: [], plan: [], off: new Set(), result: null, timer: 0 };
+
+  // ------------------------------------------------------------------ the two modes
+  for (const b of document.querySelectorAll("[data-mode]")) b.addEventListener("click", () => mode(b.dataset.mode));
+  function mode(m) {
+    for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-selected", String(b.dataset.mode === m));
+    $("swapMode").hidden = m !== "swap";
+    $("hushMode").hidden = m !== "hush";
+    // the folder swap's long description is for the folder swap only
+    $("swapLede").hidden = m !== "swap";
+  }
+
+  // ------------------------------------------------------------------ hushing
+  const source = $("hushIn");
+  source.addEventListener("input", () => { clearTimeout(S.timer); S.timer = setTimeout(run, 250); });
+  // attachments: read once when added, swapped again whenever the plan changes
+  const A = PDFSwapAttach;
+  S.atts = [];
+  $("hushFile").addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    for (const f of files) {
+      if (S.atts.some((a) => a.att.name === f.name)) continue;
+      if (f.size > 50e6) { S.atts.push({ att: { name: f.name, problem: "over 50 MB; swap it with the folder swap, which writes one file at a time" }, out: null }); continue; }
+      fill($("hushFileMsg"), "Reading " + f.name);
+      // a scan or photo, or a PDF that may hold one, is read by the page's OCR, started on first use
+      const ocr = /\.(pdf|jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i.test(f.name) && globalThis.PDFSwapScanReader
+        ? await (fill($("hushFileMsg"), "Starting the reader for scans and photos"), globalThis.PDFSwapScanReader()).catch(() => null) : null;
+      fill($("hushFileMsg"), "Reading " + f.name + (ocr ? ", letter by letter where it is a scan" : ""));
+      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer()), { ocr }).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
+      S.atts.push({ att, out: null });
+    }
+    fill($("hushFileMsg"));
+    run();
+  });
+  function renderAtts() {
+    fill($("attList"), S.atts.map((a, i) => el("div", { class: "att" },
+      el("div", { class: "grow" }, el("span", { class: "name", text: a.att.name }),
+        el("div", { class: "small", text: a.att.problem ? "Cannot be swapped here: " + a.att.problem + "." : a.att.kind === "pdf" ? plural(a.att.pages.length, "page") + " of text read" : "Text read" })),
+      el("button", { type: "button", class: "link", onclick: () => { S.atts.splice(i, 1); run(); } }, "Remove"))));
+    const ready = S.atts.filter((a) => !a.att.problem);
+    fill($("attOut"), ready.length ? [el("h2", { style: "margin:18px 0 4px" }, "Swapped attachments"),
+      el("p", { class: "small", text: "Each file is read back after it is made and searched for every hidden value; one that still holds any is not offered." }),
+      ...ready.map((a) => {
+        const o = a.out;
+        const badge = !o ? el("span", { class: "count", text: "swapping" }) : o.problem ? el("span", { class: "count bad", text: "not offered" })
+          : el("span", { class: "count" + (o.how === "text only" ? " warn" : ""), text: o.how === "text only" ? "text PDF" : o.how === "layout kept" ? "layout kept" : "nothing to swap" });
+        return el("div", { class: "att" },
+          el("div", { class: "grow" }, el("span", { class: "name", text: o && o.name ? o.name : a.att.name }), " ", badge,
+            o && o.problem ? el("div", { class: "small result-bad", text: o.problem }) : null,
+            o && o.count ? el("div", { class: "small", text: plural(o.count, "value") + " swapped for tags" }) : null,
+            o && o.notes ? o.notes.map((n) => el("div", { class: "small", text: n })) : null),
+          o && o.bytes ? el("button", { type: "button", class: "teal", onclick: () => { commit(); save(o.bytes, o.name); } }, "Download swapped file") : null);
+      })] : null);
+  }
+  function save(bytes, name) {
+    const link = el("a", { href: URL.createObjectURL(new Blob([bytes])), download: name });
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+  }
+  // each plan swaps every attachment again; a newer plan makes an older run's results stale
+  let generation = 0;
+  async function swapAtts() {
+    const mine = ++generation;
+    for (const a of S.atts) a.out = null;
+    renderAtts();
+    for (const a of S.atts) {
+      if (a.att.problem) continue;
+      const out = await A.swap(a.att, S.plan).catch((err) => ({ problem: "it could not be swapped (" + err.message + ")" }));
+      if (mine !== generation) return;
+      a.out = out;
+      renderAtts();
+    }
+  }
+  // the firm's client list: read in this tab, kept in its memory (and in a locked key if one is saved)
+  $("clientList").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    const got = H.clientList(await f.text());
+    for (const c of got) if (!S.clients.some((x) => x[0] === c[0] && x[1] === c[1])) S.clients.push(c);
+    fill($("clientMsg"), got.length ? plural(S.clients.length, "client") + " known by name, from " + f.name + ". The list stays in this tab." : "No names found in " + f.name + ": it needs a Name, Client, First or Last column, or one name per line.");
+    renderKey(); run();
+  });
+  $("hushList").addEventListener("input", (e) => {
+    S.alwaysHide = e.target.value.split(/\r?\n/).map((w) => w.trim()).filter(Boolean);
+    clearTimeout(S.timer); S.timer = setTimeout(run, 250);
+  });
+
+  function run() {
+    const text = source.value;
+    // the message and every attachment (its name too) are read as one, so a person has one tag
+    // an attachment's text is read with the spaces OCR loses put back, as the companion reads it
+    const all = [text, ...S.atts.filter((a) => !a.att.problem).flatMap((a) => [a.att.name.replace(/_/g, " ").replace(/\.[^.]+$/, ""), H.ocrText(a.att.text)])].join("\n\n");
+    if (!all.trim()) { S.plan = []; S.result = null; render(); renderAtts(); return; }
+    S.plan = H.find(all, { key: S.key, alwaysHide: S.alwaysHide, clients: S.clients });
+    for (const p of S.plan) if (S.off.has(p.value.toUpperCase())) p.checked = false;
+    // a preview: the key grows only when the swapped text is copied, a file is downloaded or an
+    // answer is restored
+    S.result = text.trim() ? H.hush(text, S.plan, clone(S.key)) : null;
+    render();
+    clearTimeout(S.attTimer); S.attTimer = setTimeout(swapAtts, 300);
+  }
+  function commit() {
+    if (!S.plan.length) return;
+    H.hush(source.value, S.plan, S.key);
+    renderKey();
+  }
+
+  function render() {
+    const plan = S.plan, r = S.result;
+    $("hushOut").value = r ? r.text : "";
+    $("hushCopy").disabled = !r;
+    fill($("hushCount"), r ? plural(plan.filter((p) => p.checked).length, "value") + " hidden, " + plural(r.count, "place") + " in the text" : "");
+    const rows = plan.map((p) => {
+      const box = el("input", { type: "checkbox", "aria-label": "Hide " + p.value, onchange: (e) => {
+        p.checked = e.target.checked;
+        if (p.checked) S.off.delete(p.value.toUpperCase()); else S.off.add(p.value.toUpperCase());
+        run();
+      } });
+      box.checked = p.checked;
+      const tag = el("input", { type: "text", class: "mono", value: p.tag, size: Math.max(10, p.tag.length + 2), "aria-label": "Tag for " + p.value, spellcheck: "false" });
+      const msg = el("span", { class: "small" });
+      tag.addEventListener("change", () => {
+        // the tag is kept in the key, so the next paste and the restore use the new name
+        commit();
+        const bad = H.renameTag(S.plan, S.key, p.tag, tag.value);
+        if (bad) { msg.textContent = bad; tag.value = p.tag; return; }
+        run();
+      });
+      return el("tr", { class: p.checked ? "" : "off" },
+        el("td", null, box), el("td", null, el("span", { class: "kind", text: KIND[p.kind] || p.kind })),
+        el("td", { class: "mono" }, p.value, p.forms.length > 1 ? el("span", { class: "ctx", text: "Also as: " + p.forms.filter((f) => f !== p.value).slice(0, 4).join(", ") }) : null),
+        el("td", null, el("div", { class: "row" }, el("span", { "aria-hidden": "true" }, "["), tag, el("span", { "aria-hidden": "true" }, "]"), msg)),
+        el("td", { class: "small", text: p.reused ? "in the key" : p.source === "your list" ? "your list" : "" }));
+    });
+    fill($("hushTable"), plan.length ? el("div", { class: "tablewrap" }, el("table", null,
+      el("thead", null, el("tr", null, el("th", { text: "Hide" }), el("th", { text: "Kind" }), el("th", { text: "Found" }), el("th", { text: "Tag the AI sees" }), el("th", { text: "" }))),
+      el("tbody", null, rows))) : el("p", { class: "small", text: source.value.trim() ? "Nothing personal found. Read the text before you send it; add anything missed to the list of words to always hide." : "Paste text or attach files above to see what will be hidden." }));
+    // the hushed text searched again: no hidden value may be left, and anything that still
+    // reads as personal is shown with a way to hide it
+    const left = r ? r.leaks : [];
+    const still = left.filter((l) => !l.tag), stuck = left.filter((l) => l.tag);
+    fill($("hushCheck"),
+      !r ? null : stuck.length ? el("p", { class: "note bad" }, plural(stuck.length, "hidden value") + " could still be read in the swapped text: " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ". Do not send it.")
+        : el("p", { class: "note ok" }, "Searched again: none of the hidden values is left in the swapped text."),
+      still.length ? el("div", { class: "note warn" }, el("p", { style: "margin:0 0 6px" }, "This still reads as personal. Hide it, or leave it if it is not:"),
+        el("div", { class: "row" }, still.map((l) => el("button", { type: "button", class: "secondary", title: l.why, onclick: () => addToList(l.value) }, "Hide “" + l.value + "”")))) : null,
+      r ? el("p", { class: "small" }, "The AI still receives everything that is not hidden: a rare condition, an unusual job or a small town can point to a person. Read the swapped text before you send it.") : null);
+  }
+  function addToList(v) {
+    if (!S.alwaysHide.includes(v)) S.alwaysHide.push(v);
+    $("hushList").value = S.alwaysHide.join("\n");
+    $("hushListBox").open = true;
+    run();
+  }
+
+  $("hushCopy").addEventListener("click", async () => {
+    commit();
+    try { await navigator.clipboard.writeText($("hushOut").value); fill($("hushCopyMsg"), "Swapped! Copied. Paste it into the AI chat."); }
+    catch (e) { $("hushOut").select(); fill($("hushCopyMsg"), "Swapped! Selected; press Ctrl+C to copy."); }
+  });
+
+  // ------------------------------------------------------------------ restoring
+  const answer = $("restoreIn");
+  answer.addEventListener("input", restore);
+  $("restorePaste").addEventListener("click", async () => {
+    try { answer.value = await navigator.clipboard.readText(); restore(); }
+    catch (e) { answer.focus(); fill($("restoreMsg"), "This browser did not allow reading the clipboard; paste with Ctrl+V."); }
+  });
+  function restore() {
+    commit();
+    if (!answer.value.trim()) { $("restoreOut").value = ""; fill($("restoreMsg")); return; }
+    const r = H.restore(answer.value, S.key);
+    $("restoreOut").value = r.text;
+    const n = r.restored.reduce((a, x) => a + x.n, 0);
+    fill($("restoreMsg"),
+      el("p", { class: n ? "note ok" : "note warn" }, n ? "Restored " + plural(n, "tag") + ", " + plural(r.restored.length, "value") + " in all." : "No tag this key knows is in the answer."),
+      r.unknown.length ? el("p", { class: "note warn" }, "This key does not know " + r.unknown.map((t) => "[" + t + "]").join(", ") + ", so " + (r.unknown.length === 1 ? "it is" : "they are") + " left as written. Open the key that swapped that text, or check whether the AI invented the tag.") : null);
+  }
+  $("restoreCopy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("restoreOut").value); fill($("restoreCopyMsg"), "Copied."); }
+    catch (e) { $("restoreOut").select(); fill($("restoreCopyMsg"), "Selected; press Ctrl+C to copy."); }
+  });
+
+  // files the AI gave back: each tag the key knows put back inside the file itself
+  $("restoreFile").addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    commit();
+    for (const f of files) {
+      const row = el("div", { class: "att" }, el("div", { class: "grow" }, el("span", { class: "name", text: f.name }), " ", el("span", { class: "count", text: "restoring" })));
+      $("restoreFiles").append(row);
+      const att = await A.read(f.name, new Uint8Array(await f.arrayBuffer())).catch((err) => ({ name: f.name, problem: "it could not be read (" + err.message + ")" }));
+      const r = await A.restoreFile(att, S.key).catch((err) => ({ problem: "it could not be restored (" + err.message + ")" }));
+      fill(row, el("div", { class: "grow" }, el("span", { class: "name", text: r.name || f.name }), " ",
+        r.problem ? el("span", { class: "count bad", text: "not restored" }) : el("span", { class: "count", text: plural(r.count, "tag") + " restored" }),
+        r.problem ? el("div", { class: "small result-bad", text: r.problem }) : null,
+        (r.notes || []).map((n) => el("div", { class: "small", text: n }))),
+        r.bytes ? el("button", { type: "button", class: "teal", onclick: () => save(r.bytes, r.name) }, "Download restored file") : null);
+    }
+  });
+
+  // ------------------------------------------------------------------ the key
+  function renderKey() {
+    const n = S.key.entries.length;
+    fill($("keyState"), n ? "This tab holds a key of " + plural(n, "tag") + ". Closing the tab forgets it." : "No key yet. It is made when you copy swapped text, and lives only in this tab.");
+    $("keySave").disabled = !n && !S.alwaysHide.length && !S.clients.length;
+    $("keyForget").disabled = !n;
+  }
+  // forgetting takes everything that holds a client out of the tab: the key, the pasted text, the
+  // attachments and the answers. Left in place, the pasted text would make the key again on the
+  // next copy or restore. The words to always hide and the client list stay: they are settings
+  $("keyForget").addEventListener("click", () => {
+    S.key = H.newKey(); S.off.clear(); S.atts = []; S.plan = []; S.result = null;
+    source.value = ""; answer.value = ""; $("restoreOut").value = "";
+    fill($("restoreFiles")); fill($("restoreMsg")); fill($("hushCopyMsg")); fill($("hushFileMsg"));
+    fill($("keyMsg"), "Forgotten: the key, the pasted text, the attachments and the answers are gone from this tab. Answers to text swapped before now can no longer be restored here." + (S.alwaysHide.length || S.clients.length ? " Your words to always hide and your client list stay." : ""));
+    run(); renderKey();
+  });
+  $("keySave").addEventListener("click", async () => {
+    const a = $("keyPass").value, b = $("keyPass2").value;
+    if (a !== b) { fill($("keyMsg"), el("span", { class: "result-bad" }, "The two passphrases differ.")); return; }
+    try {
+      fill($("keyMsg"), "Locking");
+      const file = await H.lock(S.key, S.alwaysHide, a, S.clients);
+      const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "");
+      const link = el("a", { href: URL.createObjectURL(new Blob([file], { type: "application/json" })), download: "Swap key " + stamp + ".swapkey" });
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+      $("keyPass").value = $("keyPass2").value = "";
+      fill($("keyMsg"), "Saved, locked with your passphrase (AES-256-GCM). It holds the real values: keep it with the client's file, and keep the passphrase apart from it. Without the passphrase it cannot be opened, by you or anyone.");
+    } catch (e) { fill($("keyMsg"), el("span", { class: "result-bad" }, e.message)); }
+  });
+  $("keyOpen").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    try {
+      const got = await H.unlock(await f.text(), $("keyOpenPass").value);
+      // a saved key joins the one in this tab: its tags keep their meaning
+      for (const ent of got.key.entries) if (!S.key.entries.some((k) => k.tag === ent.tag)) S.key.entries.push(ent);
+      for (const [b, n] of Object.entries(got.key.counters)) S.key.counters[b] = Math.max(S.key.counters[b] || 0, n);
+      for (const w of got.alwaysHide) if (!S.alwaysHide.includes(w)) S.alwaysHide.push(w);
+      for (const c of got.clients) if (!S.clients.some((x) => x[0] === c[0] && x[1] === c[1])) S.clients.push(c);
+      $("hushList").value = S.alwaysHide.join("\n");
+      $("keyOpenPass").value = "";
+      fill($("keyMsg"), "Opened " + f.name + ": " + plural(got.key.entries.length, "tag") + ", " + plural(got.alwaysHide.length, "word") + " to always hide.");
+      run(); restore(); renderKey();
+    } catch (err) { fill($("keyMsg"), el("span", { class: "result-bad" }, err.message)); }
+  });
+  renderKey();
+
+  // ------------------------------------------------------------------ check it yourself
+  // Every request the page makes is counted: what the browser fetched (anything not built into
+  // the page) and what the page's own rules refused.
+  const seen = { fetched: 0, refused: 0 };
+  const external = (u) => !/^(data|blob|about|chrome-extension):/.test(u);
+  try {
+    for (const e of performance.getEntriesByType("resource")) if (external(e.name)) seen.fetched++;
+    new PerformanceObserver((list) => { for (const e of list.getEntries()) if (external(e.name)) seen.fetched++; showCheck(); }).observe({ type: "resource", buffered: false });
+  } catch (e) { /* an old browser lists nothing; the counter stays at what it saw */ }
+  document.addEventListener("securitypolicyviolation", () => { seen.refused++; showCheck(); });
+  function showCheck() {
+    fill($("checkCounts"),
+      el("div", { class: "stat" }, el("b", { text: seen.fetched }), el("span", { text: "requests that left this page" })),
+      el("div", { class: "stat" }, el("b", { text: seen.refused }), el("span", { text: "requests the page refused" })));
+  }
+  $("checkTry").addEventListener("click", async () => {
+    fill($("checkMsg"), "Trying to reach example.com");
+    try {
+      await fetch("https://example.com/", { cache: "no-store" });
+      fill($("checkMsg"), el("span", { class: "result-bad" }, "The request went through. This copy of the page is not locked; do not use it with client data."));
+    } catch (e) {
+      fill($("checkMsg"), el("span", { class: "result-swapped" }, "Refused. The page's own rules stopped it before it left the browser."));
+    }
+  });
+  const csp = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+  $("checkRules").textContent = csp ? csp.content : "No rules found: do not use this copy with client data.";
+  showCheck();
 })();
 
 </script>

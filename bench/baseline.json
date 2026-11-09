@@ -1,0 +1,23 @@
+{
+  "recall": {
+    "acct": 1,
+    "business": 1,
+    "city": 1,
+    "dob": 1,
+    "ein": 1,
+    "email": 1,
+    "first": 1,
+    "last": 1,
+    "person": 0.995,
+    "phone": 1,
+    "ssn": 1,
+    "street": 1,
+    "zip": 1
+  },
+  "wrongRate": 0,
+  "keepBroken": 0,
+  "withClients": {
+    "person": 1,
+    "wrongRate": 0
+  }
+}

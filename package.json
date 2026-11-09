@@ -1,8 +1,9 @@
 {
   "name": "identity-swap",
+  "version": "1.0.0",
   "private": true,
   "description": "The libraries build.py puts inside identity-swap.html, at the exact versions it pins.",
-  "license": "UNLICENSED",
+  "license": "AGPL-3.0-only",
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",
     "fflate": "0.8.3",

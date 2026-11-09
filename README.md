@@ -12,6 +12,11 @@ Point Identity Swap at a client folder and it gives back the same folder with th
 Every folder and file comes back where it was, the same kind of file with the same layout, but
 every name, number and address belongs to nobody.
 
+It also has a second mode, **Swap text for an AI chat**: paste a client email or note, and every
+name, SSN, EIN, address, phone, email, account number and birth date becomes a tag such as
+`[PERSON-1]` or `[SSN-1]`. Send the swapped text to whichever AI you use, paste the answer back, and
+the page puts the real details back in. See [Swapping text for an AI chat](#swapping-text-for-an-ai-chat).
+
 ## What it replaces
 
 - Taxpayer, spouse, dependent and children's names, including middle initials and names that only
@@ -116,6 +121,152 @@ or erase them.
 The report, `<copy> - Identity Swap report.csv`, is saved beside the copy. It names files only by
 their new names and shows values only by their last four characters.
 
+## Swapping text for an AI chat
+
+The second tab at the top of the page. It is for asking an AI about a client without handing the
+AI the client.
+
+1. Paste the text, or open a .txt, .csv, .eml or .md file. Each value becomes a tag: `[PERSON-1]`,
+   `[PERSON-1-FIRST]` for the first name alone ("Dear [PERSON-1-FIRST]"), `[SSN-1]`, `[EIN-1]`,
+   `[ADDRESS-1]`, `[CITY-1]`, `[ZIP-1]`, `[PHONE-1]`, `[EMAIL-1]`, `[ACCOUNT-1]`, `[DOB-1]`,
+   `[BUSINESS-1]`, and `[HIDDEN-1]` for your own list. A state code is left as written, since it
+   identifies nobody and a tax answer often turns on it.
+   Under **Words to always hide**, import the firm's client list (a CSV or text export from
+   ProConnect, TaxDome, Canopy or a spreadsheet): every client is then a known person, however
+   rare the name. On the benchmark this takes names from 99.5% to 100%. The list stays in the tab,
+   and goes into a saved key only locked.
+2. Check the list. Untick anything that should stay, or rename a tag so the AI reads it better
+   (`[PERSON-2]` to `[SPOUSE]`, `[PERSON-3]` to `[CHILD-1]`). Copy the swapped text.
+3. Paste the AI's answer back. Every tag the key knows becomes the real value again. A tag the AI
+   invented is listed and left as written, never guessed.
+
+### Attachments
+
+Attach PDF, Word, Excel, PowerPoint or text files beside the message. The message and every
+attachment, file names included, are read as one, so `[PERSON-1]` in the email is `[PERSON-1]` in
+the W-2 and in the wage sheet. Each attachment comes back as a file to download and attach:
+
+- Word, Excel and PowerPoint: swapped inside the file's own parts. Tables, formulas, numbers and
+  layout stay as they were.
+- PDF: swapped in place with its layout kept. Where the PDF's own fonts can draw the tags, they are
+  written in them. Most PDFs embed only the letters they print, so a font often has no `[`: then
+  each value is taken out (which needs no letter) and its tag drawn on the same baseline in
+  Helvetica, sized to fit where the value was. Only a PDF the engine cannot change at all comes back
+  as a text PDF of its pages, labelled as one. One limit: drawn tags sit at the end of the page's
+  text stream, so a reader that ignores position (rather than reading the page as laid out) meets
+  them after the rest of the page's text.
+- Scans and photos, and PDFs whose pages are scans: read by the page's two OCR engines, each value
+  painted over with its tag in the page's own lettering, then read again. A tag wider than the
+  room its value had, or a value the readers disagree on, is blanked out instead of drawn, and the
+  file's note says so: nothing of the value is left either way.
+- The file name is swapped too: `Quillfeather W2.pdf` becomes `[PERSON-1-LAST] W2 (swapped).pdf`.
+- Every file is read back after it is made and searched for every hidden value. One that still
+  holds any is not offered.
+- Restoring works on files too: give the page a Word, Excel, PowerPoint, PDF or text file the AI
+  handed back, and each tag the key knows is put back inside the file, read back to check.
+
+How it finds things: the same rules the folder swap uses, plus a reading of names in running
+text (a first name followed by a surname, a name after a label such as "Spouse:" or a greeting
+such as "Hi Sarah,", a hyphenated or Irish surname), birth dates after "born" or "DOB", and
+businesses by their legal ending (LLC, Inc, Corp). An SSN, EIN, phone or account number is hidden
+however it is spaced or punctuated, and a card number when its check digit is right (Luhn). A
+bank's routing number names a bank, not a client, and is left as written. **Words to always hide**
+catches anything else: a nickname, an employer, a street.
+
+How it checks itself: before you copy, the swapped text is searched again for every hidden value,
+and run through the finder again. A value still present blocks it with a red note; anything that
+still reads as personal is offered with a one-click "Hide".
+
+The key: which tag stands for which value lives in the tab's memory and is gone when the tab
+closes. One value keeps one tag across every paste in the tab, so a household reads the same in a
+whole conversation. To restore an answer days later, save the key locked with a passphrase
+(a .swapkey file, AES-256-GCM, key drawn with PBKDF2-SHA-256 at 600,000 rounds, all by the browser's own Web
+Crypto). The file holds the real values encrypted and nothing readable; without the passphrase it
+cannot be opened. Nothing is ever written to browser storage.
+
+What it does not do, plainly:
+
+- Finding is a safety net, not a guarantee. Names are the hardest part. Read the swapped text
+  before you send it.
+- The AI company still receives everything that is not hidden. A rare condition, an unusual job
+  or a small town can point to a person.
+- Swapping text does not by itself make a firm compliant with any rule on client data (IRC 7216, the
+  FTC Safeguards Rule, or a state law). It supports the safeguards they expect.
+- The page cannot be inside the AI site itself yet: you copy the swapped text and attach the
+  swapped files. A browser extension that does this in place is the next step.
+
+## The companion: attachments with docling, LibreOffice and Python
+
+The page runs in a browser, so it opens only what a browser can. `companion/swap_attachments.py`
+runs on the firm's own computer and swaps a message and its attachments with the page's own rules
+(through node and `companion/rules.js`, so a tag means the same in both), using the tools a browser
+cannot:
+
+| Tool | What it does here |
+|---|---|
+| LibreOffice (headless) | Opens .doc, .xls, .ppt, .rtf, .odt, .ods and .odp and writes them as .docx, .xlsx and .pptx before they are swapped; prints a rebuilt PDF |
+| docling | Reads a PDF as a document, with headings, paragraphs and tables, and scans through OCR. The tagged text is laid out again as a Word file and printed to PDF by LibreOffice, so a W-2's boxes stay a table |
+| python-docx, python-pptx | Swap Word and PowerPoint text run by run, keeping each run's formatting, a value Word split across runs included: body, tables, headers, footers, speaker notes and the file's author and title |
+| openpyxl | Swaps Excel cell by cell: numbers stay numbers, formulas stay formulas (only the text in their quotes changes), a sheet named for a client is renamed and every formula that names it follows, comments, headers and footers |
+| pdfplumber | Reads every rebuilt PDF back, on its own, to check it |
+
+```bash
+python companion/swap_attachments.py --out "Swapped for AI" --message message.txt "Quillfeather W2.pdf" wages.xls notes.docx
+```
+
+Add `--clients list.csv` to read the firm's client list, `--always-hide WORD` for anything the rules might miss, and `--key-passphrase-env VAR` to save
+the key locked with the passphrase in that environment variable. The key is a `.swapkey` in the
+page's own format: open it in the page's text swap mode to restore the AI's answer. Without the
+flag no key is written, because a key holds the real values.
+
+Every output is read back, independently of how it was written: every XML part of an Office
+file, every page of a PDF. A file that still holds any hidden value, or anything else that still
+reads as personal, is deleted, not delivered, and the run ends with an error. No one reviews a
+list here the way the page's user does, so the companion is stricter: hide what it names with
+`--always-hide`, or pass `--accept VALUE` for one you have looked at and know is not personal.
+
+Text docling reads from a scan has the spaces OCR tends to lose put back before the rules read it
+("Marisol JQuillfeather", "AZ85711"); the copy is laid out from that same text. The report beside the files shows values by their last four
+characters only.
+
+Set up once:
+
+```bash
+pip install -r companion/requirements.txt
+```
+
+LibreOffice and node install on their own. docling downloads its models from Hugging Face the
+first time it reads a PDF (models only, never a document). After that it runs offline, or point
+`DOCLING_ARTIFACTS_PATH` at a folder of downloaded models. Note that openpyxl does not carry charts
+or pictures into a copy; the companion says so for a workbook that has them, and the page's own
+Excel swap keeps them.
+
+## How well it finds: the benchmark
+
+`node bench/run.js` scores the finding rules on 600 invented tax documents (client emails, W-2s,
+1099-NECs, preparers' notes, CSV exports, letters, scans' OCR text, and notes full of words that
+look like names and are not). Every value in them is labelled, so a miss or a wrong hide is counted,
+never guessed. Every push runs it, and CI fails if any score drops below `bench/baseline.json`.
+
+| Kind | Found |
+|---|---|
+| SSNs, EINs, account numbers, phones, emails, birth dates | 100% |
+| Streets, cities, ZIP codes, businesses | 100% |
+| People's names | 99.5% (100% with the firm's client list imported) |
+| Words wrongly hidden (forms, IRS terms, banks, "Will", "Grace", "Bill") | 0 of 1,720 |
+
+The names it still misses are a first name no public list carries beside a surname no list carries,
+with no label near them ("for Priya Ostfeather"). The documents are invented, so these numbers say
+what the rules do on the cases written into the benchmark, not on every real file: read the swapped
+text before you send it. `node bench/run.js --misses` lists every miss.
+
+## Check it yourself
+
+Both modes share a panel at the bottom of the page that counts every request the tab makes (it
+should read 0), a button that tries to reach the internet and shows the browser refusing it, and
+the page's own Content-Security-Policy, as the browser enforces it. You can also turn off Wi-Fi
+and reload: the page works the same, because everything it needs is inside the one file.
+
 ### Before you share a copy
 
 Read the report's notes. Three of them mean the copy may still hold something of a person:
@@ -142,6 +293,13 @@ Read the report's notes. Three of them mean the copy may still hold something of
 | `web/folder.js` | Runs a whole folder and writes the report |
 | `web/check.js` | Draws each PDF page before and after and compares them |
 | `web/ui.js` | The page's three steps |
+| `web/hush.js` | Swaps text into tags, checks the result, restores an answer, and locks or opens a saved key |
+| `companion/swap_attachments.py`, `companion/rules.js` | The companion: attachments swapped on the firm's computer with LibreOffice, docling, python-docx, python-pptx and openpyxl, by the page's own rules |
+| `bench/corpus.js`, `bench/run.js`, `bench/baseline.json` | The benchmark: invented tax documents with every value labelled, the scorer, and the scores CI holds the rules to |
+| `CLA.md`, `.github/pull_request_template.md` | The contributor licence agreement, and the checklist every pull request carries |
+| `.github/workflows/ci.yml` | CI: the benchmark, the tests, and a rebuild of the page that must match the committed one byte for byte |
+| `web/attach.js` | Swaps a PDF, Word, Excel, PowerPoint or text attachment with the message's tags, and reads it back to check |
+| `web/hushui.js` | The page's text swap mode and the "Check it yourself" panel |
 | `web/data.js` | PDF encoding tables and standard font widths |
 | `web/names.js`, `web/make_names.py` | First names and surnames, and the script that writes them from the Census Bureau and SSA tables |
 | `web/places.js`, `web/make_places.py` | Every active US ZIP code with its city and state, and the script that writes it |
@@ -241,5 +399,14 @@ Content-Security-Policy forbids evaluating text as script in any case.
 
 ## Licence
 
-Copyright © 2026 Taxably, Inc. All rights reserved. See `LICENSE`. The third-party components
-above are under their own licences.
+Identity Swap is open source under the GNU Affero General Public License, version 3 only
+(AGPL-3.0-only). Copyright © 2026 Taxably, Inc. See `LICENSE` for the licence and `NOTICE` for the
+copyright notice and the list of third-party components, which stay under their own licences.
+
+In plain words: anyone may use, study, change and share Identity Swap. Whoever shares a changed
+version, or runs one for other people over a network, must offer those people its source under the
+same licence. A firm that wants to build it into a closed product can ask Taxably for a commercial
+licence instead.
+
+Contributions are welcome: see `CONTRIBUTING.md` and the contributor licence agreement in `CLA.md`. To report a security problem privately, see
+`SECURITY.md`.

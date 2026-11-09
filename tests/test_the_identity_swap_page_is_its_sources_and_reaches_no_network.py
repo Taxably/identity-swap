@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = ROOT
 WEB = os.path.join(TOOL, "web")
 PAGE = os.path.join(TOOL, "identity-swap.html")
-APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "docling.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js"]
+APP = ["data.js", "places.js", "names.js", "engine.js", "pii.js", "faces.js", "docling.js", "ocr.js", "pictures.js", "office.js", "folder.js", "check.js", "ui.js", "hush.js", "attach.js", "hushui.js"]
 
 
 def _read(path):
@@ -152,3 +152,17 @@ def test_the_page_carries_every_librarys_licence_and_where_the_names_come_from()
     for title, _ in build.LICENCES:
         assert "==== %s ====" % title in page, title
     assert "Census Bureau" in page and "Social Security Administration" in page
+
+
+def test_every_pdf_pdfjs_opens_is_opened_with_eval_off():
+    # PDF.js 3.11.174 carries GHSA-wgrm-67xf-hhpq (CVE-2024-4367): a crafted font could run script
+    # when PDF.js may evaluate text. Its own workaround is isEvalSupported: false on every
+    # getDocument; the page's Content-Security-Policy forbids eval as well (tested above)
+    calls = []
+    for name in APP:
+        src = _read(os.path.join(WEB, name))
+        for m in re.finditer(r"getDocument\((\{[^{}]*\})\)", src):
+            calls.append((name, m.group(1)))
+    assert calls, "the page opens no PDF with PDF.js?"
+    bad = [(n, c) for n, c in calls if "isEvalSupported: false" not in c]
+    assert not bad, bad

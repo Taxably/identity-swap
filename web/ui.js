@@ -60,6 +60,10 @@
       render: (bytes, dpi, want, each, most) => OCR.renderPdf((b) => pdfjsLib.getDocument({ data: b.slice(), isEvalSupported: false, useSystemFonts: true, verbosity: 0 }).promise, bytes, dpi, want, each, most) });
   }
 
+  // the same reader for the text swap's attachments: started the first time a scan or photo is
+  // attached, null where this browser cannot run it
+  globalThis.PDFSwapScanReader = async () => { await ocrReader(); return ocrService(); };
+
   // ------------------------------------------------------------------ step 1: the folder
   // Chrome and Edge open the folder itself, which lists every folder in it, an empty one too, so
   // the copy can hold the same folders; another browser's file chooser lists only files
