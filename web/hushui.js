@@ -227,10 +227,15 @@
     $("keySave").disabled = !n && !S.alwaysHide.length && !S.clients.length;
     $("keyForget").disabled = !n;
   }
+  // forgetting takes everything that holds a client out of the tab: the key, the pasted text, the
+  // attachments and the answers. Left in place, the pasted text would make the key again on the
+  // next copy or restore. The words to always hide and the client list stay: they are settings
   $("keyForget").addEventListener("click", () => {
-    S.key = H.newKey(); S.off.clear();
-    fill($("keyMsg"), "Forgotten. Answers to text swapped before now can no longer be restored in this tab.");
-    run(); restore(); renderKey();
+    S.key = H.newKey(); S.off.clear(); S.atts = []; S.plan = []; S.result = null;
+    source.value = ""; answer.value = ""; $("restoreOut").value = "";
+    fill($("restoreFiles")); fill($("restoreMsg")); fill($("hushCopyMsg")); fill($("hushFileMsg"));
+    fill($("keyMsg"), "Forgotten: the key, the pasted text, the attachments and the answers are gone from this tab. Answers to text swapped before now can no longer be restored here." + (S.alwaysHide.length || S.clients.length ? " Your words to always hide and your client list stay." : ""));
+    run(); renderKey();
   });
   $("keySave").addEventListener("click", async () => {
     const a = $("keyPass").value, b = $("keyPass2").value;

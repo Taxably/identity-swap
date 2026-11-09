@@ -41,6 +41,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer libreoffice-calc libreoffice-impress fonts-dejavu-core
       - name: "Python libraries: the companion's, except docling (torch is too large for every push)"
         run: pip install -r requirements.txt python-docx==1.2.0 python-pptx==1.0.2 openpyxl==3.1.5 pdfplumber==0.11.10 cryptography==50.0.1
+      - name: "Playwright and Chromium, for the end-to-end test of the page"
+        run: npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
       - name: "Tests (the docling test skips here; it runs where docling and its models are installed)"
         run: python -m pytest -q tests
 

@@ -1,5 +1,6 @@
 {
   "name": "identity-swap",
+  "version": "1.0.0",
   "private": true,
   "description": "The libraries build.py puts inside identity-swap.html, at the exact versions it pins.",
   "license": "AGPL-3.0-only",

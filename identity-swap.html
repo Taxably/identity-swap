@@ -114,6 +114,7 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
   <header class="top">
     <div>
       <h1>Identity Swap</h1>
+      <p class="lede"><b>Two tools, one page.</b> Swap a client folder for realistic stand-ins, for testing, demos and training; or swap a client email and its attachments for tags such as [PERSON-1] before you ask an AI about them, and put the real details back in the answer. Everything happens in this tab.</p>
       <p class="lede">Give it a client folder. It gives back the same folder, every file and subfolder in place, with names, businesses, SSNs, EINs, street addresses, cities, ZIP codes, phone numbers, emails, account numbers and driver licence and ID numbers replaced by realistic stand-ins: real first names and surnames, a middle initial for a middle initial, and a real city in the same state with a real ZIP code of its own. Dependents and children are found beside the family name, and employers and payers with or without an LLC. PDFs, Excel, Word and PowerPoint files, CSV and text files, zip archives, and scans and photos (JPEG, PNG, TIFF, HEIC, GIF, BMP, WebP) all come back as the kind they came. Nothing else on any page moves.</p>
     </div>
     <span class="badge" title="The page refuses every network request. Your files are read by this browser tab and nowhere else.">
@@ -220,7 +221,7 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
   </section>
 
   <footer>
-    <p style="margin:0 0 8px">Identity Swap is free, open-source software from Taxably, under the GNU Affero General Public License, version 3, with no warranty. Its source, to read, check or build yourself: github.com/Taxably/identity-swap. This page makes no request to that address or any other.</p>
+    <p style="margin:0 0 8px">Identity Swap 1.0.0 is free, open-source software from Taxably, under the GNU Affero General Public License, version 3, with no warranty. Its source, to read, check or build yourself: github.com/Taxably/identity-swap. This page makes no request to that address or any other.</p>
     Identity Swap finds names and numbers with fixed rules; no AI service sees anything. Each character is rewritten in place, in the font the PDF already uses, so the old text is gone from the file rather than covered. A stand-in longer or shorter than its value takes the value's place, and the space after it takes up the difference, so everything else on the line stays where it was. Every copied PDF is checked before it is kept: nothing of the original is left, every other character is where it was, the rendered pages differ only inside the swapped words, and the page text reads as planned.
     A spreadsheet, a Word file or a slide deck is changed inside its own parts: formulas, numbers, formatting and layout stay as they were, a value Word split in two is found whole, and the copy must open and hold nothing of the original. A text file is written back in its own encoding. A zip archive is opened and every file in it handled the same way. A file locked against copying or printing is left out and listed.
     Pages that are pictures (scans, photos) are read inside this page by two OCR engines, Tesseract and docling's (PP-OCR on ONNX Runtime), and what either reads is searched. Every PDF page is drawn too, and what it shows that the file does not hold as letters (outlined text, a font with no letters, a small picture) is read; such a page is drawn again as a picture and painted like a scan. Each value is painted over in the picture with letters cut from the same page (a font that matches is used only for a letter the page never shows), the picture is written back at its own size, kind, resolution and colours (a palette picture keeps its palette, a fax stays black and white), and it is read again: the stand-in must read where it was painted, no original value may read anywhere, and nothing outside the painted words may change. Handwriting, signatures and stamps cannot be read; they are listed, and you choose whether to copy, erase or hold them back. On a driver licence or ID card, scanned, photographed or faxed, the photo and its faint copy are replaced with a plain silhouette (on a fax, the blots left of the faint copy go too), and the name, licence number, birth date, issue and expiry dates, address and DD number are swapped. A value that cannot be redrawn in its stand-in is blanked out rather than the file held back. The copy holds the same folders as the original, empty ones too, and every file in its place; the report is saved beside it. An SSN a spreadsheet kept as a number, with its leading zeros dropped, is found as the SSN it is. A HEIC photo comes back as a JPEG, because no free tool writes HEIC in a browser, and the report says so.
@@ -11162,10 +11163,15 @@ if (typeof module !== "undefined") module.exports = PDFSwapAttach;
     $("keySave").disabled = !n && !S.alwaysHide.length && !S.clients.length;
     $("keyForget").disabled = !n;
   }
+  // forgetting takes everything that holds a client out of the tab: the key, the pasted text, the
+  // attachments and the answers. Left in place, the pasted text would make the key again on the
+  // next copy or restore. The words to always hide and the client list stay: they are settings
   $("keyForget").addEventListener("click", () => {
-    S.key = H.newKey(); S.off.clear();
-    fill($("keyMsg"), "Forgotten. Answers to text swapped before now can no longer be restored in this tab.");
-    run(); restore(); renderKey();
+    S.key = H.newKey(); S.off.clear(); S.atts = []; S.plan = []; S.result = null;
+    source.value = ""; answer.value = ""; $("restoreOut").value = "";
+    fill($("restoreFiles")); fill($("restoreMsg")); fill($("hushCopyMsg")); fill($("hushFileMsg"));
+    fill($("keyMsg"), "Forgotten: the key, the pasted text, the attachments and the answers are gone from this tab. Answers to text swapped before now can no longer be restored here." + (S.alwaysHide.length || S.clients.length ? " Your words to always hide and your client list stay." : ""));
+    run(); renderKey();
   });
   $("keySave").addEventListener("click", async () => {
     const a = $("keyPass").value, b = $("keyPass2").value;
