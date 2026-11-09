@@ -27,6 +27,8 @@
     for (const b of document.querySelectorAll("[data-mode]")) b.setAttribute("aria-selected", String(b.dataset.mode === m));
     $("swapMode").hidden = m !== "swap";
     $("hushMode").hidden = m !== "hush";
+    // the folder swap's long description is for the folder swap only
+    $("swapLede").hidden = m !== "swap";
   }
 
   // ------------------------------------------------------------------ hushing
