@@ -11016,7 +11016,14 @@ const PDFSwapAttach = (() => {
     const byTag = new Map(key.entries.map((e) => ["[" + e.tag + "]", e.value]));
     const pairs = [...byTag].filter(([tag]) => att.text.includes(tag));
     // a sheet's name holds a tag without its brackets, which Excel does not allow there ("PERSON-1-LAST 2025")
-    if (att.kind === "office") for (const [tag, value] of byTag) { const bare = tag.slice(1, -1); if (new RegExp("(^|[^A-Z0-9-])" + bare.replace(/-/g, "\\-") + "(?![A-Z0-9-])").test(att.text.replace(/\[[^\]]*\]/g, " "))) pairs.push([bare, value]); }
+    // Only a tag of the shape this page makes (capitals, digits, hyphens) is looked for bare: a key
+    // opened from a file may hold anything, and its tags are matched as text, never read as a pattern
+    const unbracketed = att.kind === "office" ? att.text.replace(/\[[^\]]*\]/g, " ") : "";
+    if (att.kind === "office") for (const [tag, value] of byTag) {
+      const bare = tag.slice(1, -1);
+      if (!/^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/.test(bare)) continue;
+      if (new RegExp("(^|[^A-Z0-9-])" + bare.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&") + "(?![A-Z0-9-])").test(unbracketed)) pairs.push([bare, value]);
+    }
     const rows = pairs.sort((a, b) => b[0].length - a[0].length).map(([find, replace], i) => ({ id: i + 1, find, replace, label: "restore" }));
     const restoredName = (ext) => {
       const dot = att.name.lastIndexOf(".");
