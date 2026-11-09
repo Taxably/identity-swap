@@ -118,7 +118,7 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
 
   <nav class="modes" role="tablist" aria-label="What to do">
     <button type="button" role="tab" data-mode="swap" aria-selected="true">Swap a client folder</button>
-    <button type="button" role="tab" data-mode="hush" aria-selected="false">Hush text for an AI chat</button>
+    <button type="button" role="tab" data-mode="hush" aria-selected="false">Swap text for an AI chat</button>
   </nav>
 
   <div id="swapMode">
@@ -146,7 +146,7 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
   <div id="hushMode" hidden>
   <section class="card">
     <div class="step"><div class="num">1</div><div><h2>Paste what you want to ask about</h2><p class="sub">A client email, a note, a document's text. Names, SSNs, EINs, addresses, phones, emails, account and ID numbers and birth dates become tags such as [PERSON-1] and [SSN-1]. The same value keeps the same tag in every paste.</p></div></div>
-    <textarea id="hushIn" aria-label="Text to hush" placeholder="Paste text here" spellcheck="false"></textarea>
+    <textarea id="hushIn" aria-label="Text to swap" placeholder="Paste text here" spellcheck="false"></textarea>
     <div class="row" style="margin-top:8px"><label class="small" for="hushFile">Or open a text file (.txt, .csv, .eml, .md):</label><input id="hushFile" type="file" accept=".txt,.csv,.eml,.md,.text,text/plain,text/csv"><span id="hushFileMsg" class="small"></span></div>
     <details id="hushListBox" style="margin-top:12px">
       <summary>Words to always hide</summary>
@@ -156,11 +156,11 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
   </section>
 
   <section class="card">
-    <div class="step"><div class="num">2</div><div><h2>Check what is hidden, then copy</h2><p class="sub">Untick anything that should stay. Rename a tag if it helps the AI, for example [PERSON-2] to [SPOUSE]. Finding is a safety net, not a guarantee: read the hushed text before you send it.</p></div></div>
+    <div class="step"><div class="num">2</div><div><h2>Check what is hidden, then copy</h2><p class="sub">Untick anything that should stay. Rename a tag if it helps the AI, for example [PERSON-2] to [SPOUSE]. Finding is a safety net, not a guarantee: read the swapped text before you send it.</p></div></div>
     <div id="hushTable"></div>
-    <div class="row" style="margin:14px 0 6px"><h2 style="margin:0">Hushed text</h2><span id="hushCount" class="small"></span></div>
-    <textarea id="hushOut" readonly aria-label="Hushed text" spellcheck="false"></textarea>
-    <div class="row" style="margin-top:8px"><button id="hushCopy" type="button" class="teal" disabled>Copy hushed text</button><span id="hushCopyMsg" class="small"></span></div>
+    <div class="row" style="margin:14px 0 6px"><h2 style="margin:0">Swapped text</h2><span id="hushCount" class="small"></span></div>
+    <textarea id="hushOut" readonly aria-label="Swapped text" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px"><button id="hushCopy" type="button" class="teal" disabled>Copy swapped text</button><span id="hushCopyMsg" class="small"></span></div>
     <div id="hushCheck"></div>
   </section>
 
@@ -185,7 +185,7 @@ code.rules { display: block; font-family: var(--mono); font-size: 12px; backgrou
     </details>
     <details style="margin-top:10px">
       <summary>Open a saved key</summary>
-      <div class="row" style="margin-top:8px"><input id="keyOpenPass" type="password" autocomplete="current-password" placeholder="Its passphrase" aria-label="Passphrase of the saved key"><label class="small" for="keyOpen">then choose the .hushkey file:</label><input id="keyOpen" type="file" accept=".hushkey,application/json"></div>
+      <div class="row" style="margin-top:8px"><input id="keyOpenPass" type="password" autocomplete="current-password" placeholder="Its passphrase" aria-label="Passphrase of the saved key"><label class="small" for="keyOpen">then choose the .swapkey file:</label><input id="keyOpen" type="file" accept=".swapkey,.hushkey,application/json"></div>
     </details>
     <div class="row" style="margin-top:12px"><button id="keyForget" type="button" class="secondary">Forget the key now</button></div>
     <p id="keyMsg" class="small"></p>
@@ -10465,7 +10465,7 @@ globalThis.PDFSwapHush = PDFSwapHush;
 if (typeof module !== "undefined") module.exports = PDFSwapHush;
 
 /* ---- hushui.js ---- */
-/* Identity Swap: the page's second mode. Hush text for an AI chat, restore the answer, keep or
+/* Identity Swap: the page's second mode. Swap text for an AI chat, restore the answer, keep or
  * lock the key, and check for yourself that the page reaches no network. */
 (() => {
   "use strict";
@@ -10563,11 +10563,11 @@ if (typeof module !== "undefined") module.exports = PDFSwapHush;
     const left = r ? r.leaks : [];
     const still = left.filter((l) => !l.tag), stuck = left.filter((l) => l.tag);
     fill($("hushCheck"),
-      !r ? null : stuck.length ? el("p", { class: "note bad" }, plural(stuck.length, "hidden value") + " could still be read in the hushed text: " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ". Do not send it.")
-        : el("p", { class: "note ok" }, "Searched again: none of the hidden values is left in the hushed text."),
+      !r ? null : stuck.length ? el("p", { class: "note bad" }, plural(stuck.length, "hidden value") + " could still be read in the swapped text: " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ". Do not send it.")
+        : el("p", { class: "note ok" }, "Searched again: none of the hidden values is left in the swapped text."),
       still.length ? el("div", { class: "note warn" }, el("p", { style: "margin:0 0 6px" }, "This still reads as personal. Hide it, or leave it if it is not:"),
         el("div", { class: "row" }, still.map((l) => el("button", { type: "button", class: "secondary", title: l.why, onclick: () => addToList(l.value) }, "Hide “" + l.value + "”")))) : null,
-      r ? el("p", { class: "small" }, "The AI still receives everything that is not hidden: a rare condition, an unusual job or a small town can point to a person. Read the hushed text before you send it.") : null);
+      r ? el("p", { class: "small" }, "The AI still receives everything that is not hidden: a rare condition, an unusual job or a small town can point to a person. Read the swapped text before you send it.") : null);
   }
   function addToList(v) {
     if (!S.alwaysHide.includes(v)) S.alwaysHide.push(v);
@@ -10578,8 +10578,8 @@ if (typeof module !== "undefined") module.exports = PDFSwapHush;
 
   $("hushCopy").addEventListener("click", async () => {
     commit();
-    try { await navigator.clipboard.writeText($("hushOut").value); fill($("hushCopyMsg"), "Copied. Paste it into the AI chat."); }
-    catch (e) { $("hushOut").select(); fill($("hushCopyMsg"), "Selected; press Ctrl+C to copy."); }
+    try { await navigator.clipboard.writeText($("hushOut").value); fill($("hushCopyMsg"), "Swapped! Copied. Paste it into the AI chat."); }
+    catch (e) { $("hushOut").select(); fill($("hushCopyMsg"), "Swapped! Selected; press Ctrl+C to copy."); }
   });
 
   // ------------------------------------------------------------------ restoring
@@ -10597,7 +10597,7 @@ if (typeof module !== "undefined") module.exports = PDFSwapHush;
     const n = r.restored.reduce((a, x) => a + x.n, 0);
     fill($("restoreMsg"),
       el("p", { class: n ? "note ok" : "note warn" }, n ? "Restored " + plural(n, "tag") + ", " + plural(r.restored.length, "value") + " in all." : "No tag this key knows is in the answer."),
-      r.unknown.length ? el("p", { class: "note warn" }, "This key does not know " + r.unknown.map((t) => "[" + t + "]").join(", ") + ", so " + (r.unknown.length === 1 ? "it is" : "they are") + " left as written. Open the key that hushed that text, or check whether the AI invented the tag.") : null);
+      r.unknown.length ? el("p", { class: "note warn" }, "This key does not know " + r.unknown.map((t) => "[" + t + "]").join(", ") + ", so " + (r.unknown.length === 1 ? "it is" : "they are") + " left as written. Open the key that swapped that text, or check whether the AI invented the tag.") : null);
   }
   $("restoreCopy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("restoreOut").value); fill($("restoreCopyMsg"), "Copied."); }
@@ -10607,13 +10607,13 @@ if (typeof module !== "undefined") module.exports = PDFSwapHush;
   // ------------------------------------------------------------------ the key
   function renderKey() {
     const n = S.key.entries.length;
-    fill($("keyState"), n ? "This tab holds a key of " + plural(n, "tag") + ". Closing the tab forgets it." : "No key yet. It is made when you copy hushed text, and lives only in this tab.");
+    fill($("keyState"), n ? "This tab holds a key of " + plural(n, "tag") + ". Closing the tab forgets it." : "No key yet. It is made when you copy swapped text, and lives only in this tab.");
     $("keySave").disabled = !n && !S.alwaysHide.length;
     $("keyForget").disabled = !n;
   }
   $("keyForget").addEventListener("click", () => {
     S.key = H.newKey(); S.off.clear();
-    fill($("keyMsg"), "Forgotten. Answers to text hushed before now can no longer be restored in this tab.");
+    fill($("keyMsg"), "Forgotten. Answers to text swapped before now can no longer be restored in this tab.");
     run(); restore(); renderKey();
   });
   $("keySave").addEventListener("click", async () => {
@@ -10623,7 +10623,7 @@ if (typeof module !== "undefined") module.exports = PDFSwapHush;
       fill($("keyMsg"), "Locking");
       const file = await H.lock(S.key, S.alwaysHide, a);
       const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "");
-      const link = el("a", { href: URL.createObjectURL(new Blob([file], { type: "application/json" })), download: "Hush key " + stamp + ".hushkey" });
+      const link = el("a", { href: URL.createObjectURL(new Blob([file], { type: "application/json" })), download: "Swap key " + stamp + ".swapkey" });
       document.body.append(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(link.href), 60000);
       $("keyPass").value = $("keyPass2").value = "";

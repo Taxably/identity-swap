@@ -12,10 +12,10 @@ Point Identity Swap at a client folder and it gives back the same folder with th
 Every folder and file comes back where it was, the same kind of file with the same layout, but
 every name, number and address belongs to nobody.
 
-It also has a second mode, **Hush text for an AI chat**: paste a client email or note, and every
+It also has a second mode, **Swap text for an AI chat**: paste a client email or note, and every
 name, SSN, EIN, address, phone, email, account number and birth date becomes a tag such as
-`[PERSON-1]` or `[SSN-1]`. Send the hushed text to whichever AI you use, paste the answer back, and
-the page puts the real details back in. See [Hushing text for an AI chat](#hushing-text-for-an-ai-chat).
+`[PERSON-1]` or `[SSN-1]`. Send the swapped text to whichever AI you use, paste the answer back, and
+the page puts the real details back in. See [Swapping text for an AI chat](#swapping-text-for-an-ai-chat).
 
 ## What it replaces
 
@@ -121,7 +121,7 @@ or erase them.
 The report, `<copy> - Identity Swap report.csv`, is saved beside the copy. It names files only by
 their new names and shows values only by their last four characters.
 
-## Hushing text for an AI chat
+## Swapping text for an AI chat
 
 The second tab at the top of the page. It is for asking an AI about a client without handing the
 AI the client.
@@ -132,7 +132,7 @@ AI the client.
    `[BUSINESS-1]`, and `[HIDDEN-1]` for your own list. A state code is left as written, since it
    identifies nobody and a tax answer often turns on it.
 2. Check the list. Untick anything that should stay, or rename a tag so the AI reads it better
-   (`[PERSON-2]` to `[SPOUSE]`, `[PERSON-3]` to `[CHILD-1]`). Copy the hushed text.
+   (`[PERSON-2]` to `[SPOUSE]`, `[PERSON-3]` to `[CHILD-1]`). Copy the swapped text.
 3. Paste the AI's answer back. Every tag the key knows becomes the real value again. A tag the AI
    invented is listed and left as written, never guessed.
 
@@ -143,26 +143,26 @@ businesses by their legal ending (LLC, Inc, Corp). An SSN, EIN, phone or account
 however it is spaced or punctuated. **Words to always hide** catches anything else: a nickname, an
 employer, a street.
 
-How it checks itself: before you copy, the hushed text is searched again for every hidden value,
+How it checks itself: before you copy, the swapped text is searched again for every hidden value,
 and run through the finder again. A value still present blocks it with a red note; anything that
 still reads as personal is offered with a one-click "Hide".
 
 The key: which tag stands for which value lives in the tab's memory and is gone when the tab
 closes. One value keeps one tag across every paste in the tab, so a household reads the same in a
 whole conversation. To restore an answer days later, save the key locked with a passphrase
-(AES-256-GCM, key drawn with PBKDF2-SHA-256 at 600,000 rounds, all by the browser's own Web
+(a .swapkey file, AES-256-GCM, key drawn with PBKDF2-SHA-256 at 600,000 rounds, all by the browser's own Web
 Crypto). The file holds the real values encrypted and nothing readable; without the passphrase it
 cannot be opened. Nothing is ever written to browser storage.
 
 What it does not do, plainly:
 
-- Finding is a safety net, not a guarantee. Names are the hardest part. Read the hushed text
+- Finding is a safety net, not a guarantee. Names are the hardest part. Read the swapped text
   before you send it.
 - The AI company still receives everything that is not hidden. A rare condition, an unusual job
   or a small town can point to a person.
-- Hushing does not by itself make a firm compliant with any rule on client data (IRC 7216, the
+- Swapping text does not by itself make a firm compliant with any rule on client data (IRC 7216, the
   FTC Safeguards Rule, or a state law). It supports the safeguards they expect.
-- Photos, scans and PDFs are not hushed in this mode. Run them through the folder swap first.
+- Photos, scans and PDFs are not swapped in this mode. Run them through the folder swap first.
 
 ## Check it yourself
 
@@ -197,8 +197,8 @@ Read the report's notes. Three of them mean the copy may still hold something of
 | `web/folder.js` | Runs a whole folder and writes the report |
 | `web/check.js` | Draws each PDF page before and after and compares them |
 | `web/ui.js` | The page's three steps |
-| `web/hush.js` | Hushes text into tags, checks the result, restores an answer, and locks or opens a saved key |
-| `web/hushui.js` | The page's hush mode and the "Check it yourself" panel |
+| `web/hush.js` | Swaps text into tags, checks the result, restores an answer, and locks or opens a saved key |
+| `web/hushui.js` | The page's text swap mode and the "Check it yourself" panel |
 | `web/data.js` | PDF encoding tables and standard font widths |
 | `web/names.js`, `web/make_names.py` | First names and surnames, and the script that writes them from the Census Bureau and SSA tables |
 | `web/places.js`, `web/make_places.py` | Every active US ZIP code with its city and state, and the script that writes it |

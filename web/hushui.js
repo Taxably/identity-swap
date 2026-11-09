@@ -1,4 +1,4 @@
-/* Identity Swap: the page's second mode. Hush text for an AI chat, restore the answer, keep or
+/* Identity Swap: the page's second mode. Swap text for an AI chat, restore the answer, keep or
  * lock the key, and check for yourself that the page reaches no network. */
 (() => {
   "use strict";
@@ -96,11 +96,11 @@
     const left = r ? r.leaks : [];
     const still = left.filter((l) => !l.tag), stuck = left.filter((l) => l.tag);
     fill($("hushCheck"),
-      !r ? null : stuck.length ? el("p", { class: "note bad" }, plural(stuck.length, "hidden value") + " could still be read in the hushed text: " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ". Do not send it.")
-        : el("p", { class: "note ok" }, "Searched again: none of the hidden values is left in the hushed text."),
+      !r ? null : stuck.length ? el("p", { class: "note bad" }, plural(stuck.length, "hidden value") + " could still be read in the swapped text: " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ". Do not send it.")
+        : el("p", { class: "note ok" }, "Searched again: none of the hidden values is left in the swapped text."),
       still.length ? el("div", { class: "note warn" }, el("p", { style: "margin:0 0 6px" }, "This still reads as personal. Hide it, or leave it if it is not:"),
         el("div", { class: "row" }, still.map((l) => el("button", { type: "button", class: "secondary", title: l.why, onclick: () => addToList(l.value) }, "Hide “" + l.value + "”")))) : null,
-      r ? el("p", { class: "small" }, "The AI still receives everything that is not hidden: a rare condition, an unusual job or a small town can point to a person. Read the hushed text before you send it.") : null);
+      r ? el("p", { class: "small" }, "The AI still receives everything that is not hidden: a rare condition, an unusual job or a small town can point to a person. Read the swapped text before you send it.") : null);
   }
   function addToList(v) {
     if (!S.alwaysHide.includes(v)) S.alwaysHide.push(v);
@@ -111,8 +111,8 @@
 
   $("hushCopy").addEventListener("click", async () => {
     commit();
-    try { await navigator.clipboard.writeText($("hushOut").value); fill($("hushCopyMsg"), "Copied. Paste it into the AI chat."); }
-    catch (e) { $("hushOut").select(); fill($("hushCopyMsg"), "Selected; press Ctrl+C to copy."); }
+    try { await navigator.clipboard.writeText($("hushOut").value); fill($("hushCopyMsg"), "Swapped! Copied. Paste it into the AI chat."); }
+    catch (e) { $("hushOut").select(); fill($("hushCopyMsg"), "Swapped! Selected; press Ctrl+C to copy."); }
   });
 
   // ------------------------------------------------------------------ restoring
@@ -130,7 +130,7 @@
     const n = r.restored.reduce((a, x) => a + x.n, 0);
     fill($("restoreMsg"),
       el("p", { class: n ? "note ok" : "note warn" }, n ? "Restored " + plural(n, "tag") + ", " + plural(r.restored.length, "value") + " in all." : "No tag this key knows is in the answer."),
-      r.unknown.length ? el("p", { class: "note warn" }, "This key does not know " + r.unknown.map((t) => "[" + t + "]").join(", ") + ", so " + (r.unknown.length === 1 ? "it is" : "they are") + " left as written. Open the key that hushed that text, or check whether the AI invented the tag.") : null);
+      r.unknown.length ? el("p", { class: "note warn" }, "This key does not know " + r.unknown.map((t) => "[" + t + "]").join(", ") + ", so " + (r.unknown.length === 1 ? "it is" : "they are") + " left as written. Open the key that swapped that text, or check whether the AI invented the tag.") : null);
   }
   $("restoreCopy").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText($("restoreOut").value); fill($("restoreCopyMsg"), "Copied."); }
@@ -140,13 +140,13 @@
   // ------------------------------------------------------------------ the key
   function renderKey() {
     const n = S.key.entries.length;
-    fill($("keyState"), n ? "This tab holds a key of " + plural(n, "tag") + ". Closing the tab forgets it." : "No key yet. It is made when you copy hushed text, and lives only in this tab.");
+    fill($("keyState"), n ? "This tab holds a key of " + plural(n, "tag") + ". Closing the tab forgets it." : "No key yet. It is made when you copy swapped text, and lives only in this tab.");
     $("keySave").disabled = !n && !S.alwaysHide.length;
     $("keyForget").disabled = !n;
   }
   $("keyForget").addEventListener("click", () => {
     S.key = H.newKey(); S.off.clear();
-    fill($("keyMsg"), "Forgotten. Answers to text hushed before now can no longer be restored in this tab.");
+    fill($("keyMsg"), "Forgotten. Answers to text swapped before now can no longer be restored in this tab.");
     run(); restore(); renderKey();
   });
   $("keySave").addEventListener("click", async () => {
@@ -156,7 +156,7 @@
       fill($("keyMsg"), "Locking");
       const file = await H.lock(S.key, S.alwaysHide, a);
       const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "");
-      const link = el("a", { href: URL.createObjectURL(new Blob([file], { type: "application/json" })), download: "Hush key " + stamp + ".hushkey" });
+      const link = el("a", { href: URL.createObjectURL(new Blob([file], { type: "application/json" })), download: "Swap key " + stamp + ".swapkey" });
       document.body.append(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(link.href), 60000);
       $("keyPass").value = $("keyPass2").value = "";
