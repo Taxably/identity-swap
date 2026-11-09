@@ -13,6 +13,12 @@ a table, an Excel workbook with a formula, and a picture. What is held:
     original reads, every word of the original there but the hidden values
   * a file's name is swapped too ("Quillfeather W2.pdf" never reaches the AI)
   * a picture is refused with a pointer to the folder swap, never passed through
+  * a workbook as firms keep one comes back whole and clean: a client-named sheet or table gets a
+    name Excel allows and every formula that names it follows; an SSN, phone or account typed as a
+    number and a birth date kept as a date become tags in text cells (a number cell holding text is
+    a damaged file); a mailto link, its hover text, a comment, a header and the file's details are
+    swapped; no value is left in any part of the file. A legacy .xls is opened in the page, swapped
+    the same way and written as .xlsx
   * every swapped file, handed back as an AI would, is restored with the key: the Word file and
     the workbook come back with every value where it was, the PDF reads line for line as the
     original, and the restored names carry the real names again
@@ -24,6 +30,7 @@ import json
 import os
 import shutil
 import subprocess
+import zipfile
 
 import pytest
 
@@ -76,6 +83,43 @@ def _make(folder):
     wb.save(os.path.join(folder, "wages.xlsx"))
     from PIL import Image
     Image.new("RGB", (40, 20), "white").save(os.path.join(folder, "photo.png"))
+    _organizer(folder)
+
+
+def _organizer(folder):
+    """A workbook as a firm keeps one: a sheet named for the client and referred to by formulas
+    (quoted and unquoted), an Excel table named for the client, an SSN, a phone number and an
+    account number typed as numbers, birth dates as dates, a mailto link, a comment, a header, and
+    the client as the file's last editor. Then the same workbook as a legacy .xls."""
+    import datetime
+    import openpyxl
+    from openpyxl.comments import Comment
+    from openpyxl.worksheet.table import Table
+    wb = openpyxl.Workbook()
+    wb.properties.lastModifiedBy = "Marisol Quillfeather"
+    ws = wb.active
+    ws.title = "Quillfeather 2025"
+    ws.append(["Client", "SSN", "DOB", "Phone", "Email", "Wages", "Account"])
+    ws.append(["Marisol J Quillfeather", 481273306, datetime.date(1984, 3, 14), 5205550142, "marisol.q@gmail.com", 84210.5, "0012345678"])
+    ws.append(["Daniel Quillfeather", "529-61-0447", datetime.date(1982, 7, 2), "(520) 555-0199", "dan.q@outlook.com", 61000, 12345678])
+    ws["A2"].comment = Comment("Confirm address with Marisol", "Preparer")
+    ws["E2"].hyperlink = "mailto:marisol.q@gmail.com"
+    ws.oddHeader.center.text = "Quillfeather household"
+    q = wb.create_sheet("Quillfeather")
+    q.append(["Item", "Amount"])
+    q.append(["Wages", 100])
+    q.append(["Interest", 50])
+    q.add_table(Table(displayName="Quillfeather_Items", ref="A1:B3"))
+    summary = wb.create_sheet("Summary")
+    summary["A1"] = "=SUM('Quillfeather 2025'!F2:F3)"
+    summary["A2"] = "=Quillfeather!B2+Quillfeather!B3"
+    summary["A3"] = "=SUM(Quillfeather_Items[Amount])"
+    path = os.path.join(folder, "Quillfeather 2025 organizer.xlsx")
+    wb.save(path)
+    if shutil.which("soffice"):
+        subprocess.run(["soffice", "--headless", "--convert-to", "xls", "--outdir", folder, path], capture_output=True, timeout=180)
+        if os.path.exists(path[:-1]):
+            os.rename(path[:-1], os.path.join(folder, "Quillfeather legacy.xls"))
 
 
 @pytest.fixture(scope="module")
@@ -188,3 +232,45 @@ def test_every_swapped_file_restores_to_the_original(run):
             got = [" ".join(line.replace(" ,", ",").split()) for line in (pdf.pages[0].extract_text() or "").splitlines()]
         want = [" ".join(line.split()) for line in LINES]
         assert got == want, (name, got)
+
+
+ORGANIZER = ["Marisol", "Quillfeather", "Daniel", "481273306", "529-61-0447", "5205550142", "555-0199", "marisol.q", "dan.q",
+             "0012345678", "12345678", "30755", "30134"]
+
+
+def _every_part(path):
+    import html
+    import re
+    with zipfile.ZipFile(path) as z:
+        return "\n".join(html.unescape(z.read(n).decode("utf-8", "replace")) + " " + re.sub(r"<[^>]+>", " ", z.read(n).decode("utf-8", "replace"))
+                         for n in z.namelist() if n.endswith((".xml", ".rels", ".vml")))
+
+
+@pytest.mark.parametrize("name", ["Quillfeather 2025 organizer.xlsx", "Quillfeather legacy.xls"])
+def test_a_workbook_as_firms_keep_one_comes_back_whole_and_clean(run, name):
+    import openpyxl
+    if name not in run["by"]:
+        pytest.skip("LibreOffice is not here to make the legacy .xls")
+    f = run["by"][name]
+    assert f["name"] and f["name"].endswith(".xlsx") and not f["problem"], f
+    path = os.path.join(run["out"], f["name"])
+    wb = openpyxl.load_workbook(path)  # a damaged file (text in a number cell, "[" in a sheet name) fails here
+    assert wb.sheetnames == ["PERSON-1-LAST 2025", "PERSON-1-LAST", "Summary"], wb.sheetnames
+    ws = wb["PERSON-1-LAST 2025"]
+    row2 = [c.value for c in ws[2]]
+    assert row2[0] == "[PERSON-1]" and row2[1].startswith("[SSN-") and row2[2].startswith("[DOB-") and row2[3].startswith("[PHONE-")
+    assert row2[4].startswith("[EMAIL-") and row2[5] == 84210.5 and row2[6].startswith("[ACCOUNT-")
+    assert [c.value for c in ws[3]][6].startswith("[ACCOUNT-")
+    summary = wb["Summary"]
+    assert summary["A1"].value == "=SUM('PERSON-1-LAST 2025'!F2:F3)"
+    assert summary["A2"].value == "='PERSON-1-LAST'!B2+'PERSON-1-LAST'!B3"
+    if name.endswith(".xlsx"):
+        assert summary["A3"].value == "=SUM(PERSON_1_LAST__Items[Amount])"
+        assert list(wb["PERSON-1-LAST"].tables) == ["PERSON_1_LAST__Items"]
+        assert ws["E2"].hyperlink.target == "mailto:[EMAIL-1]"
+    else:
+        assert any("Opened from .xls" in n for n in f["notes"]), f["notes"]
+    text = _every_part(path)
+    left = [s for s in ORGANIZER if s in text]
+    assert not left, left
+    assert f["restored"] and not f["restored"]["problem"], f["restored"]

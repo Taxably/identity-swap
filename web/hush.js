@@ -314,6 +314,8 @@ const PDFSwapHush = (() => {
     }
     // a payment card number, 13 to 19 digits in groups, that passes the card networks' check digit (Luhn)
     for (const m of text.matchAll(/(?<![\d-])(\d{4}(?:[ -]?\d{3,4}){2,4})(?![\d-])/g)) if (luhn(digitsOf(m[1]))) take("card", m[1], [], "card");
+    // a phone number after its label, written with no punctuation at all ("Phone 5205550142")
+    for (const m of text.matchAll(/\b(?:phone|telephone|tel|cell|mobile|fax)\b[^\d\n]{0,20}?(\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})(?!\d)/gi)) take("phone", m[1], [], "phone");
     // an account number after its label, with words between ("Account number (see instructions) 9923613648")
     for (const m of text.matchAll(/\b(?:account|acct)\.?\b[^\d\n]{0,40}?(\d[\d-]{5,}\d)(?!\d)/gi)) take("acct", m[1], [], "acct");
     // a birth date in any common form, after the words that say it is one

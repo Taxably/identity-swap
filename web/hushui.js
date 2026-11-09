@@ -41,7 +41,7 @@
     const files = [...e.target.files];
     e.target.value = "";
     for (const f of files) {
-      if (S.atts.some((a) => a.att.name === f.name)) continue;
+      if (S.atts.some((a) => (a.att.source || a.att.name) === f.name)) continue;
       if (f.size > 50e6) { S.atts.push({ att: { name: f.name, problem: "over 50 MB; swap it with the folder swap, which writes one file at a time" }, out: null }); continue; }
       fill($("hushFileMsg"), "Reading " + f.name);
       // a scan or photo, or a PDF that may hold one, is read by the page's OCR, started on first use
@@ -56,7 +56,7 @@
   });
   function renderAtts() {
     fill($("attList"), S.atts.map((a, i) => el("div", { class: "att" },
-      el("div", { class: "grow" }, el("span", { class: "name", text: a.att.name }),
+      el("div", { class: "grow" }, el("span", { class: "name", text: a.att.source || a.att.name }),
         el("div", { class: "small", text: a.att.problem ? "Cannot be swapped here: " + a.att.problem + "." : a.att.kind === "pdf" ? plural(a.att.pages.length, "page") + " of text read" : "Text read" })),
       el("button", { type: "button", class: "link", onclick: () => { S.atts.splice(i, 1); run(); } }, "Remove"))));
     const ready = S.atts.filter((a) => !a.att.problem);

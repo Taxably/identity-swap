@@ -26,7 +26,9 @@ const PDFSwapOffice = (() => {
   const PARAGRAPH = new Set(["w:p", "a:p", "si", "is", "m:oMath"]);
   // attributes that hold words a person reads: a sheet's or table's name, an author, a title, a
   // pivot table's remembered value, a picture's description
-  const WORDY = new Set(["name", "displayName", "sheet", "author", "w:author", "w15:author", "title", "descr", "alt", "caption", "uniqueName", "v", "w:initials", "userName", "providerId", "userId"]);
+  const WORDY = new Set(["name", "displayName", "sheet", "author", "w:author", "w15:author", "title", "descr", "alt", "caption", "uniqueName", "v", "w:initials", "userName", "providerId", "userId",
+    // a link's hover text, the text it shows, and where in the file it points (a sheet's name)
+    "tooltip", "w:tooltip", "display", "location", "w:anchor"]);
 
   function decodePart(bytes) {
     if (bytes[0] === 0xff && bytes[1] === 0xfe) return { text: new TextDecoder("utf-16le").decode(bytes.subarray(2)), enc: "utf-16le" };
@@ -108,8 +110,8 @@ const PDFSwapOffice = (() => {
    * in (Excel's Social Security Number format, or a column headed SSN) is also read as its own
    * line, "SSN   12345678", so one kept as a number, without its leading zero, is found. */
   const SSN_HEADER = /^\s*(?:ssn|ss ?#|ss ?no\.?|social security(?: number| no\.?| #)?|soc\.? ?sec\.?(?: ?#| no\.?)?|tin|itin|ssn ?\/ ?itin|taxpayer id(?:entification)?(?: number| no\.?)?|tax ?id(?: number| no\.?)?)\s*$/i;
-  function sheetLines(xml, shared, ssnStyles = new Set()) {
-    const lines = [], extra = [], ssnCols = new Set();
+  function sheetLines(xml, shared, ssnStyles = new Set(), dateStyles = new Set()) {
+    const lines = [], extra = [], ssnCols = new Set(), dobCols = new Set(), labelCols = new Map();
     for (const row of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
       const cells = [];
       for (const c of row[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
@@ -120,19 +122,63 @@ const PDFSwapOffice = (() => {
         else if (t && t[1] === "inlineStr") v = [...body.matchAll(/<t\b[^>]*>([^<]*)<\/t>/g)].map((x) => unescape(x[1])).join("");
         else { const k = /<v>([^<]*)<\/v>/.exec(body); v = k ? unescape(k[1]) : null; }
         if (v === null || v === "") continue;
+        // a number Excel shows as a date is read as the date it shows ("3/14/1984", not 30755)
+        const date = (!t || t[1] === "n") && style && dateStyles.has(+style) ? serialDate(v) : null;
+        if (date) v = date;
         cells.push(v);
         if (col && SSN_HEADER.test(v)) ssnCols.add(col);
+        else if (col && DOB_HEADER.test(v)) dobCols.add(col);
+        else if (col && LABELLED.some(([re]) => re.test(v))) labelCols.set(col, LABELLED.find(([re]) => re.test(v))[1]);
+        else if (col && labelCols.has(col)) extra.push(labelCols.get(col) + "   " + v.trim());
         else if ((col && ssnCols.has(col)) || (style && ssnStyles.has(+style))) extra.push("SSN   " + v.trim());
+        else if (col && dobCols.has(col) && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(v.trim())) extra.push("DOB   " + v.trim());
       }
       if (cells.length) lines.push(cells.join("   "));
     }
     return lines.concat(extra);
   }
+  /** A workbook's own number formats, [id, format code], whichever order their attributes come in. */
+  function numFmts(stylesXml) {
+    return [...stylesXml.matchAll(/<numFmt\b([^>]*)/g)].map((m) => [(/\bnumFmtId="(\d+)"/.exec(m[1]) || [])[1], (/\bformatCode="([^"]*)"/.exec(m[1]) || [])[1]]).filter(([id, code]) => id && code !== undefined);
+  }
+  // a column whose header names what its cells hold: each cell is also read with that name, so a
+  // number no rule would know by its shape alone ("5205550142" under Phone) is found
+  const LABELLED = [
+    [/^\s*(?:phone|telephone|tel\.?|cell|mobile|home phone|work phone|phone (?:no\.?|number|#))\s*$/i, "Phone"],
+    [/^\s*(?:account|acct\.?|account (?:no\.?|number|#)|acct (?:no\.?|#)|bank account|routing and account)\s*$/i, "Account number"],
+    [/^\s*(?:ein|fein|employer id(?:entification)?(?: number| no\.?)?)\s*$/i, "EIN"],
+  ];
+  const DOB_HEADER = /^\s*(?:dob|d\.o\.b\.?|date of birth|birth ?date|birthday|born)\s*$/i;
+  /** An Excel date number as the date it stands for, M/D/YYYY ("30755" is 3/14/1984); null for a
+   * number no date could be (a time of day alone, or past the year 9999). */
+  function serialDate(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 1 || n >= 2958466) return null;
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 864e5);
+    return (d.getUTCMonth() + 1) + "/" + d.getUTCDate() + "/" + d.getUTCFullYear();
+  }
+  /** The cell styles that print a number as a date: Excel's own date formats (14 to 22, 27 to 36,
+   * 45 to 47, 50 to 58) and any format of the workbook's own that shows a day, a month or a year. */
+  function dateStylesOf(stylesXml) {
+    const builtIn = (id) => (id >= 14 && id <= 22) || (id >= 27 && id <= 36) || (id >= 45 && id <= 47) || (id >= 50 && id <= 58);
+    const custom = new Set();
+    for (const [id, raw] of numFmts(stylesXml)) {
+      const m = [null, id, raw];
+      // a format's quoted words and escaped letters are not codes
+      const code = unescape(m[2]).replace(/"[^"]*"|\\./g, "").replace(/\[[^\]]*\]/g, "");
+      if (/[dy]/i.test(code) || /m/i.test(code) && !/[hs]/i.test(code)) custom.add(+m[1]);
+    }
+    const out = new Set(), xfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(stylesXml);
+    if (xfs) [...xfs[1].matchAll(/<xf\b([^>]*)/g)].forEach((x, k) => { const id = /\bnumFmtId="(\d+)"/.exec(x[1]); if (id && (builtIn(+id[1]) || custom.has(+id[1]))) out.add(k); });
+    return out;
+  }
+
   /** The cell styles that print a number as an SSN (000-00-0000, Excel's own Social Security
    * Number format): their indexes in the workbook's list of cell formats. */
   function ssnStylesOf(stylesXml) {
     const ssnFmts = new Set();
-    for (const m of stylesXml.matchAll(/<numFmt\b[^>]*\bnumFmtId="(\d+)"[^>]*\bformatCode="([^"]*)"/g)) {
+    for (const [id, raw] of numFmts(stylesXml)) {
+      const m = [null, id, raw];
       const code = unescape(m[2]).replace(/[\\"]/g, "");
       if (/^0{3}-0{2}-0{4}$/.test(code)) ssnFmts.add(+m[1]);
     }
@@ -163,17 +209,25 @@ const PDFSwapOffice = (() => {
     }
     const sheets = Object.keys(files).some((n) => /^xl\/worksheets\/[^/]+\.xml$/.test(n));
     const ssnStyles = files["xl/styles.xml"] ? ssnStylesOf(decodePart(files["xl/styles.xml"]).text) : new Set();
+    const dateStyles = files["xl/styles.xml"] ? dateStylesOf(decodePart(files["xl/styles.xml"]).text) : new Set();
     for (const [name, data] of Object.entries(files)) {
       if (/\.(png|jpe?g|gif|bmp|tiff?|webp|emf|wmf)$/i.test(name)) { media.push(name); continue; }
       if (!/\.(xml|rels|vml)$/i.test(name)) continue;
       const { text } = decodePart(data);
       const sheet = /^xl\/worksheets\/[^/]+\.xml$/.test(name);
-      if (sheet) lines.push(...sheetLines(text, shared, ssnStyles));
+      if (sheet) lines.push(...sheetLines(text, shared, ssnStyles, dateStyles));
       // a sheet's cells are read row by row above, and its shared strings with them
       if (sheets && name === "xl/sharedStrings.xml") continue;
       for (const g of groups(tokens(text))) {
         if (sheet && !g.attr && g.pieces.every((p) => p.owner === "v" || p.owner === "t")) continue;
         lines.push(plainOf(g).replace(/\r?\n/g, " "));
+      }
+      // the addresses of external links, so what a link holds is found and checked like the rest
+      if (/\.rels$/i.test(name)) for (const m of text.matchAll(/<Relationship\b[^>]*>/g)) {
+        if (!/\bTargetMode="External"/.test(m[0])) continue;
+        let target = unescape((/\bTarget="([^"]*)"/.exec(m[0]) || [])[1] || "");
+        try { target = decodeURI(target); } catch (e) { /* as written */ }
+        if (target) lines.push(target);
       }
     }
     const prof = globalThis.PDFSwapPII.textProfile(lines.join("\n"), path);
@@ -238,6 +292,7 @@ const PDFSwapOffice = (() => {
    * (what each picture inside it says to look at: a value blanked out, writing nobody can read). */
   async function swap(bytes, rows, { paintMedia = null } = {}) {
     const files = Z().unzipSync(bytes);
+    const dateStyles = files["xl/styles.xml"] ? dateStylesOf(decodePart(files["xl/styles.xml"]).text) : new Set();
     const prepared = E().prepareRows(rows.map((r) => ({ ...r })));
     const occurrences = [], outFiles = {}, warnings = [];
     let changed = false, badXml = [];
@@ -245,7 +300,16 @@ const PDFSwapOffice = (() => {
       let out = data;
       if (/\.(xml|rels|vml)$/i.test(name)) {
         const { text, enc } = decodePart(data);
-        const [neu, hits] = swapPart(text, prepared);
+        const sheet = /^xl\/worksheets\/[^/]+\.xml$/.test(name);
+        // a date cell whose date is swapped: the number Excel keeps for it is not the text found
+        const [dated, dateHits] = sheet ? swapDateCells(text, rows, dateStyles) : [text, []];
+        let [neu, hits] = swapPart(dated, prepared);
+        hits = hits.concat(dateHits);
+        // a number cell that took a stand-in that is not a number is written as text
+        if (sheet) neu = textInNumberCells(neu);
+        // a link's address ("mailto:ann@example.com", a web address with a name in it) is kept apart
+        // from the text that shows it, in the part's relationships
+        if (/\.rels$/i.test(name)) { const [linked, linkHits] = swapLinks(neu, prepared); neu = linked; hits = hits.concat(linkHits); }
         for (const row of hits) occurrences.push({ where: "text", label: partLabel(name), row, replaced: true, reason: "" });
         if (neu !== text) {
           if (!wellFormed(neu)) badXml.push(partLabel(name));
@@ -263,6 +327,8 @@ const PDFSwapOffice = (() => {
       outFiles[name] = [out, { level: /\.(png|jpe?g|gif|zip|mp4|wdp)$/i.test(name) ? 0 : 6 }];
     }
     if (!changed) return { output: null, occurrences, checks: [], warnings };
+    // a sheet or table name a swap made invalid for Excel is made valid, with every reference to it
+    if (outFiles["xl/workbook.xml"]) validNames(outFiles, warnings);
     const output = Z().zipSync(outFiles);
     // checks on the written file: it opens, every part it changed is whole XML, and nothing of
     // the original is left in any text it holds
@@ -276,6 +342,120 @@ const PDFSwapOffice = (() => {
     checks.push({ name: "nothing left", passed: !!reopened && left === 0, detail: left ? left + " original values still read in it" : "" });
     return { output, occurrences, checks, warnings };
   }
+  /** Date cells (a number in a date format) whose date a row swaps, M/D/YYYY as the finder read
+   * it: a stand-in date becomes the number Excel keeps for it; anything else (a tag) becomes text. */
+  function swapDateCells(xml, rows, dateStyles) {
+    if (!dateStyles.size) return [xml, []];
+    const byDate = new Map();
+    for (const r of rows) if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(r.find)) byDate.set(r.find, r);
+    if (!byDate.size) return [xml, []];
+    const hits = [];
+    const out = xml.replace(/<c\b([^>]*?)>((?:(?!<\/c>)[\s\S])*)<\/c>/g, (all, attrs, body) => {
+      const style = (/\bs="(\d+)"/.exec(attrs) || [])[1], v = /<v>([^<]*)<\/v>/.exec(body);
+      if (/\bt="(?!n")/.test(attrs) || !style || !dateStyles.has(+style) || !v || /<f\b/.test(body)) return all;
+      const row = byDate.get(serialDate(v[1]));
+      if (!row) return all;
+      hits.push(row);
+      const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(row.replace);
+      if (m) return "<c" + attrs + ">" + body.replace(v[0], "<v>" + (Date.UTC(+m[3], +m[1] - 1, +m[2]) - Date.UTC(1899, 11, 30)) / 864e5 + "</v>") + "</c>";
+      return "<c" + attrs.replace(/\s*\bt="n"/, "") + ' t="inlineStr"><is><t xml:space="preserve">' + escText(row.replace) + "</t></is></c>";
+    });
+    return [out, hits];
+  }
+  /** The addresses of a part's external links (TargetMode="External"), swapped as text: read as
+   * written (XML and %-escapes undone), swapped, written back escaped. A link to a part inside the
+   * file is a path, never a value, and is left alone. */
+  function swapLinks(xml, prepared) {
+    const hits = [];
+    const out = xml.replace(/<Relationship\b[^>]*>/g, (tag) => {
+      if (!/\bTargetMode="External"/.test(tag)) return tag;
+      return tag.replace(/\bTarget="([^"]*)"/, (all, raw) => {
+        let target = unescape(raw);
+        try { target = decodeURI(target); } catch (e) { /* an address with a stray % stays as written */ }
+        const [neu, found] = E().swapPlain(target, prepared);
+        if (!found.length) return all;
+        hits.push(...found);
+        return 'Target="' + escAttr(neu) + '"';
+      });
+    });
+    return [out, hits];
+  }
+
+  /** A cell Excel keeps as a number (no type, or type n) whose value a swap made text: written as
+   * Excel writes text, an inline string, or, where a formula makes it, a formula with a text result.
+   * A number cell holding text is a file Excel calls damaged. */
+  function textInNumberCells(xml) {
+    return xml.replace(/<c\b([^>]*?)>((?:(?!<\/c>)[\s\S])*)<\/c>/g, (all, attrs, body) => {
+      const t = /\bt="([^"]*)"/.exec(attrs);
+      if (t && t[1] !== "n") return all;
+      const v = /<v>([^<]*)<\/v>/.exec(body);
+      if (!v || /^\s*-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s*$/.test(v[1])) return all;
+      const a = attrs.replace(/\s*\bt="n"/, "");
+      if (/<f\b/.test(body)) return "<c" + a + ' t="str">' + body + "</c>";
+      return "<c" + a + ' t="inlineStr">' + body.replace(v[0], '<is><t xml:space="preserve">' + v[1] + "</t></is>") + "</c>";
+    });
+  }
+
+  /** Excel's own rules for names, applied after a swap. A sheet's name may not hold [ ] : * ? / \
+   * and runs to 31 characters at most; a table's name is letters, digits, "_" and "." and starts
+   * with a letter or "_". A swap whose stand-in breaks a rule (a tag such as "[PERSON-1-LAST]" in a
+   * sheet named for the client) would leave a workbook Excel repairs or refuses, and a formula in
+   * which "[...]" means another workbook. Each such name takes its nearest valid form
+   * ("PERSON-1-LAST 2025"), and every formula, defined name, pivot source and property that names it
+   * follows: a quoted reference ('Name'!A1), an unquoted one (Name!A1), a sheet attribute, the
+   * list of sheet titles in the document's details, a table's structured references (Name[Col]). */
+  function validNames(outFiles, warnings) {
+    const dec = (n) => decodePart(outFiles[n][0]);
+    const put = (n, text, enc) => { outFiles[n] = [encodePart(text, enc), outFiles[n][1]]; };
+    const esc = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const sheets = new Map(), tables = new Map(), taken = new Set();
+    const wb = dec("xl/workbook.xml");
+    for (const m of wb.text.matchAll(/<sheet\b[^>]*\bname="([^"]*)"/g)) taken.add(unescape(m[1]).toLowerCase());
+    for (const m of wb.text.matchAll(/<sheet\b[^>]*\bname="([^"]*)"/g)) {
+      const name = unescape(m[1]);
+      if (!/[[\]:*?/\\]/.test(name) && name.length <= 31 && !/^'|'$/.test(name)) continue;
+      let good = name.replace(/[[\]:*?/\\]/g, "").replace(/^'+|'+$/g, "").replace(/\s+/g, " ").trim().slice(0, 31) || "Sheet";
+      for (let k = 2; taken.has(good.toLowerCase()); k++) good = good.slice(0, 31 - String(k).length - 3) + " (" + k + ")";
+      taken.add(good.toLowerCase());
+      sheets.set(name, good);
+    }
+    for (const n of Object.keys(outFiles)) {
+      if (!/^xl\/tables\/[^/]+\.xml$/.test(n)) continue;
+      const m = /<table\b[^>]*\bdisplayName="([^"]*)"/.exec(dec(n).text);
+      if (!m) continue;
+      const name = unescape(m[1]);
+      if (/^[A-Za-z_\\][A-Za-z0-9_.]*$/.test(name)) continue;
+      let good = name.replace(/[^A-Za-z0-9_.]+/g, "_").replace(/^_+(?=.)/, "").replace(/^(?=[0-9.])/, "_") || "Table";
+      while ([...tables.values()].includes(good)) good += "_";
+      tables.set(name, good);
+    }
+    if (!sheets.size && !tables.size) return;
+    for (const n of Object.keys(outFiles)) {
+      if (!/\.(xml|rels)$/i.test(n)) continue;
+      const { text, enc } = dec(n);
+      let t = text;
+      for (const [bad, good] of sheets) {
+        const q = "'" + good.replace(/'/g, "''") + "'!";
+        for (const form of [bad, escText(bad)]) {
+          // quoted references, the apostrophe written as itself or as &apos;
+          for (const ap of ["'", "&apos;"]) t = t.split(ap + form.replace(/'/g, ap + ap) + ap + "!").join(q.replace(/'/g, ap));
+          // unquoted references, where a swap left no quotes around a name that now needs them
+          t = t.replace(new RegExp("(^|[^A-Za-z0-9_.'\\]])" + esc(form) + "!", "g"), (m0, pre) => pre + q);
+        }
+        // the sheet's own entry, a pivot table's source, the titles in the document's details
+        t = t.replace(new RegExp('(<sheet\\b[^>]*\\bname="|\\bsheet=")' + esc(escAttr(bad)) + '"', "g"), (m0, pre) => pre + escAttr(good) + '"');
+        t = t.split("<vt:lpstr>" + escText(bad) + "</vt:lpstr>").join("<vt:lpstr>" + escText(good) + "</vt:lpstr>");
+      }
+      for (const [bad, good] of tables) {
+        t = t.replace(new RegExp('(\\b(?:displayName|name)=")' + esc(escAttr(bad)) + '"', "g"), (m0, pre) => pre + good + '"');
+        t = t.split(escText(bad) + "[").join(good + "[");
+      }
+      if (t !== text) put(n, t, enc);
+    }
+    const names = [...sheets.values(), ...tables.values()];
+    warnings.push((names.length === 1 ? "a sheet or table name" : names.length + " sheet or table names") + " written as " + names.map((v) => "“" + v + "”").join(", ") + ": Excel does not allow the brackets of a tag there");
+  }
+
   function partLabel(name) {
     if (/^xl\/worksheets\//.test(name) || name === "xl/sharedStrings.xml") return "a cell";
     if (/^xl\/workbook\.xml$/.test(name)) return "a sheet's name";

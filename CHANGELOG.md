@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 (2026-11-09)
+
+**Excel attachments, as firms keep them.**
+- A sheet or table named for the client no longer leaves a workbook Excel calls damaged: its name
+  takes a form Excel allows and every formula that names it follows.
+- An SSN, phone or account number typed as a number, and a birth date kept as a date, are found
+  and swapped; a number cell that takes a tag is written as text.
+- A link's address and hover text are swapped (they held the client's email).
+- Older spreadsheets (.xls, .xlsb, .ods, .numbers) are accepted, opened by SheetJS 0.20.3 inside
+  the page and returned as .xlsx.
+- Restoring a workbook puts the client's name back in its sheet names too.
+
 ## 1.0.0 (2026-11-09)
 
 The first open-source release, under AGPL-3.0-only.
