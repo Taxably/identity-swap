@@ -181,6 +181,52 @@ What it does not do, plainly:
   FTC Safeguards Rule, or a state law). It supports the safeguards they expect.
 - Photos and scans are not swapped in this mode. Run them through the folder swap first.
 
+## The companion: attachments with docling, LibreOffice and Python
+
+The page runs in a browser, so it opens only what a browser can. `companion/swap_attachments.py`
+runs on the firm's own computer and swaps a message and its attachments with the page's own rules
+(through node and `companion/rules.js`, so a tag means the same in both), using the tools a browser
+cannot:
+
+| Tool | What it does here |
+|---|---|
+| LibreOffice (headless) | Opens .doc, .xls, .ppt, .rtf, .odt, .ods and .odp and writes them as .docx, .xlsx and .pptx before they are swapped; prints a rebuilt PDF |
+| docling | Reads a PDF as a document, with headings, paragraphs and tables, and scans through OCR. The tagged text is laid out again as a Word file and printed to PDF by LibreOffice, so a W-2's boxes stay a table |
+| python-docx, python-pptx | Swap Word and PowerPoint text run by run, keeping each run's formatting, a value Word split across runs included: body, tables, headers, footers, speaker notes and the file's author and title |
+| openpyxl | Swaps Excel cell by cell: numbers stay numbers, formulas stay formulas (only the text in their quotes changes), a sheet named for a client is renamed and every formula that names it follows, comments, headers and footers |
+| pdfplumber | Reads every rebuilt PDF back, on its own, to check it |
+
+```bash
+python companion/swap_attachments.py --out "Swapped for AI" --message message.txt "Quillfeather W2.pdf" wages.xls notes.docx
+```
+
+Add `--always-hide WORD` for anything the rules might miss, and `--key-passphrase-env VAR` to save
+the key locked with the passphrase in that environment variable. The key is a `.swapkey` in the
+page's own format: open it in the page's text swap mode to restore the AI's answer. Without the
+flag no key is written, because a key holds the real values.
+
+Every output is read back, independently of how it was written: every XML part of an Office
+file, every page of a PDF. A file that still holds any hidden value, or anything else that still
+reads as personal, is deleted, not delivered, and the run ends with an error. No one reviews a
+list here the way the page's user does, so the companion is stricter: hide what it names with
+`--always-hide`, or pass `--accept VALUE` for one you have looked at and know is not personal.
+
+Text docling reads from a scan has the spaces OCR tends to lose put back before the rules read it
+("Marisol JQuillfeather", "AZ85711"); the copy is laid out from that same text. The report beside the files shows values by their last four
+characters only.
+
+Set up once:
+
+```bash
+pip install -r companion/requirements.txt
+```
+
+LibreOffice and node install on their own. docling downloads its models from Hugging Face the
+first time it reads a PDF (models only, never a document). After that it runs offline, or point
+`DOCLING_ARTIFACTS_PATH` at a folder of downloaded models. Note that openpyxl does not carry charts
+or pictures into a copy; the companion says so for a workbook that has them, and the page's own
+Excel swap keeps them.
+
 ## Check it yourself
 
 Both modes share a panel at the bottom of the page that counts every request the tab makes (it
@@ -215,6 +261,7 @@ Read the report's notes. Three of them mean the copy may still hold something of
 | `web/check.js` | Draws each PDF page before and after and compares them |
 | `web/ui.js` | The page's three steps |
 | `web/hush.js` | Swaps text into tags, checks the result, restores an answer, and locks or opens a saved key |
+| `companion/swap_attachments.py`, `companion/rules.js` | The companion: attachments swapped on the firm's computer with LibreOffice, docling, python-docx, python-pptx and openpyxl, by the page's own rules |
 | `web/attach.js` | Swaps a PDF, Word, Excel, PowerPoint or text attachment with the message's tags, and reads it back to check |
 | `web/hushui.js` | The page's text swap mode and the "Check it yourself" panel |
 | `web/data.js` | PDF encoding tables and standard font widths |
