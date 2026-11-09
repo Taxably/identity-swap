@@ -91,8 +91,7 @@ def test_a_tag_can_be_renamed_and_keeps_its_new_name(probe):
 
 def test_the_saved_key_is_locked(probe):
     locked = probe["locked"]
-    for s in ["Marisol", "481-27-3306", "Quillfeather", "Kip", "PERSON-1"]:
-        assert s not in locked
+    _key_holds_no_value(locked, ["Marisol", "481-27-3306", "Quillfeather", "Kip", "PERSON-1"])
     f = json.loads(locked)
     assert f["cipher"] == "AES-256-GCM" and f["kdf"] == "PBKDF2-SHA-256" and f["iterations"] >= 600000
     assert probe["opened"]["tags"] == probe["opened"]["keyTags"]
@@ -127,3 +126,17 @@ def test_a_client_list_makes_every_client_a_known_person(probe):
 
 def test_card_numbers_are_checked_and_routing_numbers_kept(probe):
     assert probe["cards"] == "Paid with [CARD-1]; the other card 4111-1111-1111-1112 was declined. Routing 021000021."
+
+
+def _key_holds_no_value(locked, secrets):
+    """A saved key, judged as an attacker without the passphrase would read it: its readable fields
+    hold no value, and its ciphertext, decoded, holds none either. (Searching the base64 text
+    itself would find a short word like "Kip" in random ciphertext now and then.)"""
+    import base64
+    f = json.loads(locked)
+    assert set(f) == {"format", "version", "cipher", "kdf", "iterations", "salt", "iv", "data"}, set(f)
+    readable = json.dumps({k: v for k, v in f.items() if k not in ("salt", "iv", "data")}).lower()
+    raw = b"".join(base64.b64decode(f[k]) for k in ("salt", "iv", "data"))
+    for s in secrets:
+        assert s.lower() not in readable, s
+        assert s.encode("utf-8") not in raw and s.encode("utf-16-le") not in raw, s

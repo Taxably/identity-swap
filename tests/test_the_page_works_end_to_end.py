@@ -179,7 +179,7 @@ def test_the_locked_key_holds_no_value_and_opens_only_with_its_passphrase(run):
     with open(os.path.join(run["out"], "key", run["keyFile"]), encoding="utf-8") as fh:
         locked = fh.read()
     assert run["keyFile"].endswith(".swapkey")
-    _clean(locked, "key file")
+    _key_holds_no_value(locked, SECRETS)
     assert "Marisol" not in run["afterForget"]
     assert "does not open this key" in run["wrongPass"]
     assert run["keyMsg"].startswith("Opened")
@@ -199,3 +199,17 @@ def test_the_folder_swap_downloads_a_clean_copy(run):
             text = _office_text(data) if n.endswith(".docx") else data.decode("utf-8", "replace")
             if not n.endswith(".csv"):
                 _clean(text, n)
+
+
+def _key_holds_no_value(locked, secrets):
+    """A saved key, judged as an attacker without the passphrase would read it: its readable fields
+    hold no value, and its ciphertext, decoded, holds none either. (Searching the base64 text
+    itself would find a short word like "Kip" in random ciphertext now and then.)"""
+    import base64
+    f = json.loads(locked)
+    assert set(f) == {"format", "version", "cipher", "kdf", "iterations", "salt", "iv", "data"}, set(f)
+    readable = json.dumps({k: v for k, v in f.items() if k not in ("salt", "iv", "data")}).lower()
+    raw = b"".join(base64.b64decode(f[k]) for k in ("salt", "iv", "data"))
+    for s in secrets:
+        assert s.lower() not in readable, s
+        assert s.encode("utf-8") not in raw and s.encode("utf-16-le") not in raw, s

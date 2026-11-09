@@ -180,7 +180,7 @@ def test_the_key_opens_in_the_page_and_restores_an_answer(run):
     assert len(keys) == 1
     with open(os.path.join(run["out"], keys[0]), encoding="utf-8") as fh:
         locked = fh.read()
-    _clean(locked, "key file")
+    _key_holds_no_value(locked, SECRETS)
     r = subprocess.run(["node", UNLOCK, os.path.join(run["out"], keys[0]), "correct horse battery"], capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     got = json.loads(r.stdout)
@@ -254,3 +254,17 @@ def test_a_scan_is_read_through_ocr_and_nothing_it_shows_survives(tmp_path):
     for tag in ("[PERSON-1]", "[PERSON-2]", "[SSN-1]", "[ADDRESS-1]", "[CITY-1]", "[ZIP-1]"):
         assert tag in text, (tag, text)
     assert "1,284.00" in text
+
+
+def _key_holds_no_value(locked, secrets):
+    """A saved key, judged as an attacker without the passphrase would read it: its readable fields
+    hold no value, and its ciphertext, decoded, holds none either. (Searching the base64 text
+    itself would find a short word like "Kip" in random ciphertext now and then.)"""
+    import base64
+    f = json.loads(locked)
+    assert set(f) == {"format", "version", "cipher", "kdf", "iterations", "salt", "iv", "data"}, set(f)
+    readable = json.dumps({k: v for k, v in f.items() if k not in ("salt", "iv", "data")}).lower()
+    raw = b"".join(base64.b64decode(f[k]) for k in ("salt", "iv", "data"))
+    for s in secrets:
+        assert s.lower() not in readable, s
+        assert s.encode("utf-8") not in raw and s.encode("utf-16-le") not in raw, s
