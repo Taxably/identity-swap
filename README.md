@@ -148,6 +148,16 @@ the W-2 and in the wage sheet. Each attachment comes back as a file to download 
 
 - Word, Excel and PowerPoint: swapped inside the file's own parts. Tables, formulas, numbers and
   layout stay as they were.
+- Excel as firms keep it: an SSN, phone or account number typed as a number, and a birth date kept
+  as a date, are found (a column headed SSN, DOB, Phone or Account says what its cells hold) and
+  become tags in text cells, as Excel writes text. A sheet or table named for the client takes a
+  name Excel allows (`PERSON-1-LAST 2025`: Excel forbids brackets there) and every formula that
+  names it follows. A link's address and hover text, comments, headers and the file's details are
+  swapped too.
+- Older spreadsheets (.xls, .xlsb, .ods, .numbers) are opened in the page by SheetJS and come back
+  as .xlsx: values, formulas, sheets and number formats kept, colours and borders possibly simpler.
+  An older Word or PowerPoint file (.doc, .ppt) cannot be opened in a browser: save it as .docx or
+  .pptx, or swap it with the companion, which opens it with LibreOffice.
 - PDF: swapped in place with its layout kept. Where the PDF's own fonts can draw the tags, they are
   written in them. Most PDFs embed only the letters they print, so a font often has no `[`: then
   each value is taken out (which needs no letter) and its tag drawn on the same baseline in
@@ -381,6 +391,7 @@ are inside it (search the page source for `====`):
 | fflate 0.8.3 | MIT |
 | UTIF.js 3.1.0 | MIT |
 | gifenc 1.0.3 | MIT |
+| SheetJS Community Edition (xlsx) 0.20.3, from SheetJS's own release | Apache-2.0 |
 | libheif-js 1.23.5 (libheif and libde265) | LGPL-3.0, carried unmodified as its own script so it can be replaced |
 | tracking.js 1.1.3 and its frontal-face cascade | BSD |
 | tesseract.js-core 7.0.0 (Tesseract, Leptonica, libpng, LibTIFF, libwebp, zlib, libjpeg) | Apache-2.0 and each part's own licence, in `web/ocr-LICENSES.txt` |

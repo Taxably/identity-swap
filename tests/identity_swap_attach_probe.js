@@ -8,7 +8,7 @@ const W = path.join(ROOT, "web");
 const page = fs.readFileSync(path.join(ROOT, "identity-swap.html"), "utf8");
 globalThis.self = globalThis;
 const blocks = [...page.matchAll(/<script>\n([\s\S]*?)\n<\/script>/g)].map((m) => m[1].replace(/<\\\/script/g, "</script").replace(/<\\!--/g, "<!--"));
-for (const [sign, name] of [["PDFDocument", "PDFLib"], ["unzipSync", "fflate"]]) {
+for (const [sign, name] of [["PDFDocument", "PDFLib"], ["unzipSync", "fflate"], ["SheetJS", "XLSX"]]) {
   const src = blocks.find((b) => b.includes(sign) && !b.includes("PDFSwapEngine"));
   if (!src) throw Error("the page carries no " + name);
   vm.runInThisContext(src, { filename: name + ".js" });
@@ -42,7 +42,7 @@ const A = require(path.join(W, "attach.js"));
       if (back.bytes) fs.writeFileSync(path.join(job.out, "restored", back.name), back.bytes);
       restored = { name: back.name || null, problem: back.problem || null, notes: back.notes || [] };
     }
-    out.push({ in: a.name, name: r.name || null, how: r.how || null, problem: r.problem || null, notes: r.notes || [], restored });
+    out.push({ in: a.source || a.name, name: r.name || null, how: r.how || null, problem: r.problem || null, notes: r.notes || [], restored });
   }
   process.stdout.write(JSON.stringify({ message: H.hush(job.message, plan, H.newKey()).text, files: out, tags: plan.map((p) => p.tag) }));
 })().catch((e) => { process.stderr.write(String(e && e.stack || e)); process.exit(1); });

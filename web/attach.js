@@ -19,11 +19,44 @@ const PDFSwapAttach = (() => {
   const F = () => globalThis.PDFSwapFolder, H = () => globalThis.PDFSwapHush, E = () => globalThis.PDFSwapEngine, P = () => globalThis.PDFSwapPII;
 
   /** What a file is and what it says. `problem` is set when it cannot be swapped here. */
+  // older spreadsheets, opened by SheetJS and written as .xlsx before they are swapped
+  const LEGACY_SHEET = /\.(xls|xlsb|xlw|ods|fods|numbers|wk[1-4]|wks|dbf|sylk|slk|dif)$/i;
+  // older documents and decks no browser can open; Word or PowerPoint save them as .docx and .pptx
+  const LEGACY_DOC = /\.(doc|dot|wps|odt|ott|ppt|pps|pot|odp|otp|wpd|pages|key)$/i;
+
+  /** SheetJS writes a "level" attribute on each column that Excel's format does not have (its name
+   * is outlineLevel, also written), and Excel offers to repair a file that carries it: taken out. */
+  function cleanSheetJs(bytes) {
+    const Z = globalThis.fflate, files = Z.unzipSync(bytes);
+    for (const n of Object.keys(files)) {
+      if (!/^xl\/worksheets\/[^/]+\.xml$/.test(n)) continue;
+      const xml = new TextDecoder().decode(files[n]);
+      const neu = xml.replace(/<col\b[^>]*>/g, (tag) => tag.replace(/\s+level="\d+"/, ""));
+      if (neu !== xml) files[n] = new TextEncoder().encode(neu);
+    }
+    return Z.zipSync(files);
+  }
+
   async function read(name, bytes, { ocr = null } = {}) {
+    let converted = null;
+    const source = name;
+    if (LEGACY_SHEET.test(name) && globalThis.XLSX) {
+      try {
+        // number formats kept (cellNF), so a date column still reads as dates once written again
+        const wb = globalThis.XLSX.read(bytes, { type: "array", cellNF: true, cellDates: false, cellStyles: true, WTF: false });
+        bytes = cleanSheetJs(new Uint8Array(globalThis.XLSX.write(wb, { bookType: "xlsx", type: "array", compression: true, cellStyles: true })));
+        converted = name.slice(name.lastIndexOf("."));
+        name = name.replace(/\.[^.]+$/, ".xlsx");
+      } catch (e) {
+        return { name, bytes, kind: "other", text: "", pages: [], status: null, ocr, problem: "it could not be opened as a spreadsheet (" + ((e && e.message) || e) + "); it may be damaged, or locked with a password" };
+      }
+    }
     const kind = F().kindOf(name);
-    const att = { name, bytes, kind, text: "", pages: [], problem: null, status: null, ocr };
+    const att = { name, source, bytes, kind, text: "", pages: [], problem: null, status: null, ocr, converted };
     if (!/^(pdf|office|text)$/.test(kind) && !(kind === "picture" && ocr && ocr.canRead(name))) {
-      att.problem = kind === "picture" ? "a picture, and the reader for scans and photos is not available here: the folder swap in Chrome or Edge reads them" : "not a kind of file this can change (PDF, Word, Excel, PowerPoint, text, or a scan or photo)";
+      att.problem = kind === "picture" ? "a picture, and the reader for scans and photos is not available here: the folder swap in Chrome or Edge reads them"
+        : LEGACY_DOC.test(name) ? "an older document or deck no browser can open: save it as .docx or .pptx in Word or PowerPoint and attach that, or swap it with the companion (companion/swap_attachments.py), which opens it with LibreOffice"
+          : "not a kind of file this can change (PDF, Word, Excel, PowerPoint, an older spreadsheet, text, or a scan or photo)";
       return att;
     }
     const file = { path: name, size: bytes.length, read: async () => bytes };
@@ -82,7 +115,7 @@ const PDFSwapAttach = (() => {
     } else if (att.kind === "office") {
       const got = await runEngine(att, rows);
       if (!got.bytes) return { problem: "it could not be swapped: " + got.why };
-      made = { bytes: got.bytes, how: "layout kept" };
+      made = { bytes: got.bytes, how: "layout kept", warnings: got.warnings };
     } else if (att.kind === "picture") {
       // a scan or photo: each value painted over with its tag, as the folder swap paints a stand-in
       const got = await runEngine(att, rows);
@@ -101,6 +134,7 @@ const PDFSwapAttach = (() => {
     const stuck = left.filter((l) => l.tag);
     if (stuck.length) return { problem: "the swapped copy still held " + stuck.map((l) => "[" + l.tag + "]").join(", ") + ", so it is not offered" };
     const notes = (made.warnings || []).map((w) => "Look at: " + w);
+    if (att.converted) notes.push("Opened from " + att.converted + " and written as .xlsx: values, formulas, sheets and number formats are kept; colours, borders and fonts may be simpler.");
     if (made.drawn) notes.push("The PDF's own fonts could not draw the tags, so each value was taken out and its tag drawn in its place; the page is otherwise as it was.");
     if (made.how === "text only") notes.push("The PDF's own fonts could not show the tags in place (" + made.why + "), so this is a text PDF of its pages: the words are all there, the layout is not.");
     const still = left.filter((l) => !l.tag);
@@ -125,8 +159,10 @@ const PDFSwapAttach = (() => {
   async function restoreFile(att, key) {
     if (att.problem) return { problem: att.problem };
     const byTag = new Map(key.entries.map((e) => ["[" + e.tag + "]", e.value]));
-    const rows = [...byTag].filter(([tag]) => att.text.includes(tag)).sort((a, b) => b[0].length - a[0].length)
-      .map(([find, replace], i) => ({ id: i + 1, find, replace, label: "restore" }));
+    const pairs = [...byTag].filter(([tag]) => att.text.includes(tag));
+    // a sheet's name holds a tag without its brackets, which Excel does not allow there ("PERSON-1-LAST 2025")
+    if (att.kind === "office") for (const [tag, value] of byTag) { const bare = tag.slice(1, -1); if (new RegExp("(^|[^A-Z0-9-])" + bare.replace(/-/g, "\\-") + "(?![A-Z0-9-])").test(att.text.replace(/\[[^\]]*\]/g, " "))) pairs.push([bare, value]); }
+    const rows = pairs.sort((a, b) => b[0].length - a[0].length).map(([find, replace], i) => ({ id: i + 1, find, replace, label: "restore" }));
     const restoredName = (ext) => {
       const dot = att.name.lastIndexOf(".");
       const stem = H().restore(dot > 0 ? att.name.slice(0, dot) : att.name, key).text.replace(/ \(swapped\)$/, "");

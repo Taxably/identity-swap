@@ -4,7 +4,7 @@
 
 The folder is a node_modules folder holding pdf-lib 1.17.1 (with pako), pdfjs-dist 3.11.174,
 tesseract.js-core 7.0.0, @tesseract.js-data/eng 1.0.0, fflate 0.8.3, utif 3.1.0, gifenc 1.0.3,
-libheif-js 1.23.5, tracking 1.1.3 and onnxruntime-web 1.22.0. --models is the folder
+libheif-js 1.23.5, tracking 1.1.3, onnxruntime-web 1.22.0 and SheetJS (xlsx) 0.20.3. --models is the folder
 fetch_docling_models.py fills with the PP-OCR models docling's RapidOCR engine runs. Each file is
 checked against the SHA-256 pinned below before it goes in, and its licence goes in with it. The
 OCR engines' WebAssembly and their models go in as base64; Tesseract's model, ONNX Runtime's
@@ -38,6 +38,9 @@ LIBS = {
     # the photo on an ID card, found (BSD): the Viola-Jones detector and its frontal-face cascade
     "tracking/build/tracking-min.js": "b53ce081c1b8e64be541dfe5329d62235491e11d2f0b80b1f7f27519e819df60",
     "tracking/build/data/face-min.js": "3f0f3431466b3d494786e2880fce060da5d3b347f6483c93a9a73e1aa74a8a1a",
+    # older spreadsheets (.xls, .xlsb, .ods) opened and written as .xlsx (Apache-2.0), from SheetJS's
+    # own release (cdn.sheetjs.com), which carries the fixes npm's last xlsx release lacks
+    "xlsx/dist/xlsx.full.min.js": "cc015130aa8521e7f088f88898eba949ccdcbfb38df0bd129b44b7273c3a6f41",
 }
 # what goes around a library so it can run as a script of its own in the page
 WRAP = {
@@ -48,7 +51,7 @@ WORKER = ("pdfjs-dist/build/pdf.worker.min.js",
           "feabdf309770ed24bba31a5467836cdc8cf639c705af27d52b585b041bb8527b")
 LICENCES = [("pdf-lib 1.17.1", "pdf-lib/LICENSE.md"), ("pako 1.0.11 (inside pdf-lib)", "pako/LICENSE"),
             ("PDF.js 3.11.174", "pdfjs-dist/LICENSE"), ("fflate 0.8.3", "fflate/LICENSE"), ("UTIF.js 3.1.0", "utif/LICENSE"),
-            ("gifenc 1.0.3", "gifenc/LICENSE.md"),
+            ("gifenc 1.0.3", "gifenc/LICENSE.md"), ("SheetJS Community Edition 0.20.3 (xlsx)", "xlsx/LICENSE"),
             ("tracking.js 1.1.3 (its Viola-Jones detector, and the frontal-face cascade it carries, converted from OpenCV's)", "tracking/LICENSE.md"),
             ("libheif-js 1.23.5 (libheif and libde265 compiled to WebAssembly; carried unmodified as its own script, so it can"
              " be replaced; source at github.com/catdad-experiments/libheif-js, github.com/strukturag/libheif and"
