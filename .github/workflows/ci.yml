@@ -42,7 +42,7 @@ jobs:
       - name: "Python libraries: the companion's, except docling (torch is too large for every push)"
         run: pip install -r requirements.txt python-docx==1.2.0 python-pptx==1.0.2 openpyxl==3.1.5 pdfplumber==0.11.10 cryptography==50.0.1
       - name: "Playwright and Chromium, for the end-to-end test of the page"
-        run: npm install --no-save playwright@1.63.0 && npx playwright install --with-deps chromium
+        run: npm install --no-save --omit=optional --ignore-scripts playwright@1.63.0 && npx playwright install --with-deps chromium
       - name: "Tests (the docling test skips here; it runs where docling and its models are installed)"
         run: python -m pytest -q tests
 
@@ -57,7 +57,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: npm ci --ignore-scripts
+      - name: "npm ci, without PDF.js's optional Node-only parts (canvas and the tar it brings): the page never uses them"
+        run: npm ci --ignore-scripts --omit=optional
       - run: pip install -r requirements.txt
       - name: Fetch the PP-OCR models, checked against their pinned SHA-256
         run: python web/fetch_docling_models.py ocr-models

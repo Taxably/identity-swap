@@ -22,6 +22,15 @@ Never send a real client's document.
 Finding misses that the checks catch (the file is held back, or the value is listed for review) are
 ordinary bugs: open an issue with an invented example.
 
+## Known advisories in what the page carries
+
+| Advisory | Where | Why it does not reach a user | Plan |
+|---|---|---|---|
+| [GHSA-wgrm-67xf-hhpq](https://github.com/advisories/GHSA-wgrm-67xf-hhpq) (CVE-2024-4367), PDF.js up to 4.1.392: a crafted PDF font could run script | PDF.js 3.11.174, inside the page | Every PDF the page opens is opened with `isEvalSupported: false`, the advisory's own workaround, and a test fails if one is not. The page's Content-Security-Policy forbids evaluating text as script in any case. | Move to a fixed PDF.js release once the page's PDF reading is re-tested against it |
+| node-tar, @mapbox/node-pre-gyp, canvas (several, up to critical) | Optional parts of the pdfjs-dist package, for running PDF.js in Node | They are never installed (`npm ci --omit=optional`) and never built into the page | None needed |
+
+The Python libraries the tests use are kept at releases with no known advisory (`pip-audit`).
+
 ## Supported versions
 
 Only the latest commit on the default branch is supported. Fixes are not back-ported.

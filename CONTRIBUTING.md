@@ -14,7 +14,7 @@ else:
 ## Set up
 
 ```bash
-npm ci
+npm ci --ignore-scripts --omit=optional
 pip install -r requirements.txt
 python web/fetch_docling_models.py ocr-models
 ```
@@ -56,7 +56,9 @@ name or number, not even redacted; a test file that came from a real return is r
 - Sign off each commit (`git commit -s`): the sign-off certifies the
   [Developer Certificate of Origin](https://developercertificate.org/), that you wrote the change
   or have the right to submit it under the project's licence.
-- Contributions are accepted under the project's licence, AGPL-3.0-only.
+- Agree to the [Contributor License Agreement](CLA.md) by ticking its box in the pull request.
+  Identity Swap is AGPL-3.0-only and Taxably also offers it under commercial licences; the
+  agreement lets your contribution be part of both. You keep your copyright.
 
 ## Writing style
 

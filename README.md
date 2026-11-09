@@ -296,6 +296,7 @@ Read the report's notes. Three of them mean the copy may still hold something of
 | `web/hush.js` | Swaps text into tags, checks the result, restores an answer, and locks or opens a saved key |
 | `companion/swap_attachments.py`, `companion/rules.js` | The companion: attachments swapped on the firm's computer with LibreOffice, docling, python-docx, python-pptx and openpyxl, by the page's own rules |
 | `bench/corpus.js`, `bench/run.js`, `bench/baseline.json` | The benchmark: invented tax documents with every value labelled, the scorer, and the scores CI holds the rules to |
+| `CLA.md`, `.github/pull_request_template.md` | The contributor licence agreement, and the checklist every pull request carries |
 | `.github/workflows/ci.yml` | CI: the benchmark, the tests, and a rebuild of the page that must match the committed one byte for byte |
 | `web/attach.js` | Swaps a PDF, Word, Excel, PowerPoint or text attachment with the message's tags, and reads it back to check |
 | `web/hushui.js` | The page's text swap mode and the "Check it yourself" panel |
@@ -407,5 +408,5 @@ version, or runs one for other people over a network, must offer those people it
 same licence. A firm that wants to build it into a closed product can ask Taxably for a commercial
 licence instead.
 
-Contributions are welcome: see `CONTRIBUTING.md`. To report a security problem privately, see
+Contributions are welcome: see `CONTRIBUTING.md` and the contributor licence agreement in `CLA.md`. To report a security problem privately, see
 `SECURITY.md`.

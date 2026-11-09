@@ -3,8 +3,8 @@ pdfminer.six==20260107
 pytest==9.1.1
 numpy==2.4.6 ; python_full_version < '3.12'
 numpy==2.5.2 ; python_full_version >= '3.12'
-pillow==12.3.0
-pypdf==6.20.0
+pillow==13.0.0
+pypdf==6.21.4
 pypdfium2==5.14.0
 pdfplumber==0.11.10
 reportlab==5.0.1
