@@ -1432,7 +1432,7 @@ const PDFSwapPII = (() => {
   const firstName = (w) => FIRST_SET.has(w.toLowerCase());
   const surname = (w) => LAST_SET.has(w.toLowerCase());
 
-  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, plainName, firstName, surname, lists: { FIRST, LAST, STREET } };
+  return { profile, textProfile, detect, attachContexts, generate, regenerate, follow, formsFor, fit, FITS, allRows, folderName, realCity, cityKey, renamePath, copyCase, nameTokens, pseudo, plainName, firstName, surname, institution: (t) => INSTITUTION.test(t), lists: { FIRST, LAST, STREET } };
 })();
 globalThis.PDFSwapPII = PDFSwapPII;
 if (typeof module !== "undefined") module.exports = PDFSwapPII;

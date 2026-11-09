@@ -60,7 +60,7 @@ const PDFSwapHush = (() => {
 
   const DATE = "(?:\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/.-]\\d{1,2}[/.-]\\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{1,2},?\\s+\\d{4}|\\d{1,2}\\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{4})";
   const BORN = new RegExp("\\b(?:born(?:\\s+on)?|birth\\s*date|date\\s+of\\s+birth|d\\.?o\\.?b\\.?|birthday)\\s*[:\\-]?\\s*(" + DATE + ")", "gi");
-  const COMPANY = /((?:[\p{Lu}][\p{L}0-9&'’.-]*[ \t]+){1,4}(?:LLC|L\.L\.C\.|PLLC|LLP|Inc\.?|Corp\.?|Co\.|Company|Ltd\.?))(?![\p{L}])/gu;
+  const COMPANY = /((?:[\p{Lu}][\p{L}0-9&'’.-]*[ \t]+){1,4}(?:LLC|L\.L\.C\.|PLLC|LLP|Inc\.?|INC\.?|Corp\.?|CORP\.?|Co\.|CO\.|Company|COMPANY|Ltd\.?|LTD\.?))(?![\p{L}])/gu;
 
   // ---------------------------------------------------------------- text read from a picture
   const STATE_CODES = "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC|PR";
@@ -76,14 +76,22 @@ const PDFSwapHush = (() => {
   }
 
   // ---------------------------------------------------------------- people in running text
-  const RUN = /[\p{Lu}][\p{L}'’-]*\.?(?:[ \t]+[\p{Lu}][\p{L}'’-]*\.?)*/gu;
+  // a run of capitalized words; a surname's lowercase particles ride inside it ("van der Berg", "de la Cruz")
+  const RUN = /[\p{Lu}][\p{L}'’-]*\.?(?:[ \t]+(?:(?:van|von|der|den|de|del|della|la|le|da|di|du|dos|bin|al)[ \t]+)*[\p{Lu}][\p{L}'’-]*\.?)*/gu;
+  const PARTICLE = /^(?:van|von|der|den|de|del|della|la|le|da|di|du|dos|bin|al)$/;
   const isInitial = (w) => /^\p{Lu}\.?$/u.test(w);
   const SUFFIX = /^(?:Jr|Sr|II|III|IV)\.?$/;
+  const HONORIFIC = /^(?:Mr|Mrs|Ms|Dr|Mx|St)\.$/;
   const bare = (w) => w.replace(/[.,]$/, "").replace(/['’]s$/i, "");
   // a label that says a person's name comes next
   const PERSON_LABEL = /\b(?:taxpayer|spouse|client|dependent|child(?:\s*#?\d+)?|son|daughter|employee|recipient|beneficiary|owner|partner|member|shareholder|preparer|patient|tenant|borrower|contact|attn|attention|from|to|cc|for|with|meet|call|email|ask|tell|text|thanks|thank you|hi|hello|hey|dear)\s*[:,-]?\s*$/i;
   // a role and a colon: what follows is a person's name, whatever the lists say of its words
-  const ROLE_LABEL = /\b(?:taxpayer|spouse|client|dependent|child(?:\s*#?\d+)?|son|daughter|employee|recipient|beneficiary|owner|partner|shareholder|patient|tenant|borrower|name|attn|attention)(?:['’]s)?(?:\s+name)?\s*:\s*$/i;
+  const ROLE_LABEL = /\b(?:taxpayer|spouse|client|dependent|child(?:\s*#?\d+)?|son|daughter|employee|recipient|beneficiary|owner|partner|shareholder|patient|tenant|borrower|name|attn|attention)(?:['’]s)?(?:\s+name)?\s*:?\s*$/i;
+  // a form's label on the line above ("RECIPIENT'S name", "Employee's first name and initial Last name")
+  const LABEL_LINE = /\b(?:name|recipient|employee|taxpayer|spouse|borrower|student|beneficiary|owner)(?:['’]s)?(?:\s+name)?[^\n]{0,40}\n\s*$/i;
+  // words that name a part of a form or a document, never a person ("Schedule C Corporation")
+  const FORM_WORD = new Set("schedule form part section box line exhibit table appendix plan option class type unit building suite apt room floor phase item step chapter article figure page grade category tier level zone area sector block lot map team all everyone folks again".split(" "));
+  const LAST_FIRST = /(?<=^|["'\t;,]|\n)[ \t]*([\p{Lu}][\p{L}'’-]+),[ \t]+([\p{Lu}][\p{L}'’-]+)(?:[ \t]+(\p{Lu})\.?)?[ \t]*(?=["'\t;,]|\n|$|[ \t]+-)/gmu;
   const GREETING = /\b(?:hi|hello|hey|dear|thanks|thank you)\s*,?\s*$/i;
 
   /** Each person's name as written in the text. A stretch of capitalized words is a person when
@@ -92,17 +100,21 @@ const PDFSwapHush = (() => {
    * person after a greeting ("Hi Sarah,"). "Raman-Iyer" and "O'Neil" are judged by their parts. */
   function personRuns(text, found, other = new Set()) {
     const P = PII(), out = [];
+    // a particle word ("van der Berg") is judged by its capitalized part
+    const core = (w) => w.split(" ").at(-1);
     const parts = (w) => bare(w).split(/[-–'’]/).filter((x) => x.length > 1);
     const known = (w) => found.has(bare(w).toUpperCase()) || parts(w).some((x) => found.has(x.toUpperCase()));
     const first = (w) => P.firstName(bare(w)) || known(w);
-    const last = (w) => parts(w).length > 0 && parts(w).every((x) => P.surname(x) || found.has(x.toUpperCase())) || known(w);
+    const last = (w0) => { const w = core(w0); return parts(w).length > 0 && parts(w).every((x) => P.surname(x) || found.has(x.toUpperCase())) || known(w); };
     const opener = (w) => OPENER.has(bare(w).toLowerCase());
     // a city, a state code or an acronym ("Denver", "CO", "IRS") is never a name word
-    const place = (w) => other.has(bare(w).toUpperCase()) || /^\p{Lu}{2,4}$/u.test(bare(w)) && !found.has(bare(w).toUpperCase());
+    const STATE = new Set(STATE_CODES.split("|"));
+    const place = (w) => other.has(bare(w).toUpperCase()) || STATE.has(bare(w)) ||
+      /^\p{Lu}{2,4}$/u.test(bare(w)) && !found.has(bare(w).toUpperCase()) && !P.firstName(bare(w)) && !P.surname(bare(w));
     // after a label that names a person ("Spouse:"), a capitalized word no list holds is still a
     // name, up to the next field ("Amount", "SSN")
     const FIELD = /^(?:amount|address|ssn|tin|ein|phone|tel|email|e-mail|date|dob|total|due|tax|account|acct|employer|age|relationship|income|wages|balance|id)$/i;
-    const name = (w) => !opener(w) && !place(w) && (first(w) || last(w) || P.plainName(bare(w)) || /^O['’]\p{Lu}/u.test(w) || /^Mc\p{Lu}/u.test(w));
+    const name = (w0) => { const w = core(w0); return !opener(w) && !place(w) && (first(w) || last(w) || P.plainName(bare(w)) || /^(?:O['’]|Mc|Mac|De|Di|Da|La|Le|Van|St\.?)\p{Lu}\p{Ll}/u.test(w)); };
     // a family's surname: a capitalized word that follows two or more different first names
     // ("Marisol J Quillfeather", "Daniel Quillfeather"), whatever the lists say of it
     const after = new Map();
@@ -114,34 +126,51 @@ const PDFSwapHush = (() => {
     }
     for (const [w, firsts] of after) if (firsts.size >= 2) found.add(w);
     for (const m of text.matchAll(RUN)) {
-      const words = m[0].split(/[ \t]+/);
-      // offsets of each word, for what precedes it
+      // a particle joins the surname after it, so "van der Berg" is one word of the name
+      const words = [];
+      let pre = "";
+      for (const w of m[0].split(/[ \t]+/)) { if (PARTICLE.test(w)) { pre += w + " "; continue; } words.push(pre + w); pre = ""; }
       const at = []; let k = m.index;
       for (const w of words) { k = text.indexOf(w, k); at.push(k); k += w.length; }
       for (let i = 0; i < words.length;) {
         const after = ROLE_LABEL.test(text.slice(Math.max(0, at[i] - 30), at[i]));
-        const plainCap = (w) => !FIELD.test(bare(w)) && !opener(w) && !place(w) && /^\p{Lu}\p{Ll}/u.test(w);
-        // the surname after "First M" is a name whatever the lists say ("Marisol J Quillfeather")
-        const afterInitial = (k) => k >= i + 2 && isInitial(words[k - 1]) && P.firstName(bare(words[k - 2]));
-        const ok = (w, k) => name(w) || (after && k - i < 4 || afterInitial(k)) && plainCap(w);
+        const plainCap = (w0) => { const w = core(w0); return !FIELD.test(bare(w)) && !opener(w) && !place(w) && !FORM_WORD.has(bare(w).toLowerCase()) && /^\p{Lu}(?:\p{Ll}|\p{Lu}{2,})/u.test(w); };
+        const soft = !after && PERSON_LABEL.test(text.slice(Math.max(0, at[i] - 30), at[i]));
+        // "Priya K Kelllund", "Marisol J Quillfeather": a capitalized word, an initial and a capitalized
+        // word are a person, whether or not the lists know either name, unless a form word is in it
+        const afterInitial = (k) => k >= i + 2 && isInitial(words[k - 1]) && plainCap(words[k - 2]);
+        const ok = (w, k) => name(w) || ((after || soft) && k - i < 4 || afterInitial(k) || k === i && isInitial(words[i + 1] || "") && plainCap(words[i + 2] || "")) && plainCap(w);
         if (!ok(words[i], i)) { i++; continue; }
         let j = i;
-        while (j < words.length && (ok(words[j], j) || isInitial(words[j]) || SUFFIX.test(words[j]) && j > i)) { j++; if (SUFFIX.test(words[j - 1])) break; }
+        while (j < words.length && (ok(words[j], j) || isInitial(words[j]) || SUFFIX.test(words[j]) && j > i)) {
+          j++;
+          // a suffix ends a name, and so does a full stop after a word longer than an initial
+          if (SUFFIX.test(words[j - 1]) || /\.$/.test(words[j - 1]) && !isInitial(words[j - 1]) && !HONORIFIC.test(words[j - 1])) break;
+        }
         let end = j;
         while (end > i && !ok(words[end - 1], end - 1) && !SUFFIX.test(words[end - 1])) end--;
         let span = words.slice(i, end);
-        const before = text.slice(Math.max(0, at[i] - 30), at[i]);
+        const before = text.slice(Math.max(0, at[i] - 30), at[i]), i0 = i;
+        const afterSpan = end > 0 ? text.slice(at[end - 1] + words[end - 1].length, at[end - 1] + words[end - 1].length + 3) : "";
         i = j;
         // a word before a person already known is not part of them ("Call Daniel Quillfeather")
         while (span.length > 2 && !known(span[0]) && span.slice(1).filter((w) => !isInitial(w) && !SUFFIX.test(w)).length >= 2 &&
           span.slice(1).filter((w) => !isInitial(w) && !SUFFIX.test(w)).every(known)) span.shift();
         const named = span.filter((w) => !isInitial(w) && !SUFFIX.test(w));
         if (!named.length) continue;
-        const labelled = PERSON_LABEL.test(before) || ROLE_LABEL.test(before);
-        // "Marisol J Quillfeather": a first name, an initial, a capitalized word is a person
-        const initialed = span.length === 3 && isInitial(span[1]) && P.firstName(bare(span[0])) && !opener(span[2]);
+        // a bank, a brokerage, a school or an agency is never a person ("Wells Fargo", "Charles Schwab")
+        if (P.institution(span.join(" "))) continue;
+        const nameish = (w) => name(w);
+        // after a role and a colon ("Spouse:"), the words are a name; after a softer word ("my spouse",
+        // "for", "call") only when one of them is a name the lists know
+        const above = text.slice(Math.max(0, at[i0] - 90), at[i0]);
+        const labelled = ROLE_LABEL.test(before) || LABEL_LINE.test(above) || PERSON_LABEL.test(before) && named.some(nameish);
+        const initialed = span.length === 3 && isInitial(span[1]) && named.every((w) => !FORM_WORD.has(bare(w).toLowerCase()) && !opener(w));
         const vouched = named.some(known) || labelled || initialed || named.length >= 2 && first(named[0]) && last(named[named.length - 1]);
-        if (named.length >= 2 ? !vouched : !(known(named[0]) || GREETING.test(before) && first(named[0]))) continue;
+        // one word alone: a known name, or after a greeting ("Thanks, Priya"), a first name or a
+        // capitalized word that ends the line or the clause
+        const greeted = GREETING.test(before) && (first(named[0]) || /^\s*(?:[,.!]|$)/.test(afterSpan) && !FORM_WORD.has(bare(named[0]).toLowerCase()));
+        if (named.length >= 2 ? !vouched : !(known(named[0]) || greeted)) continue;
         let phrase = span.join(" ").replace(/,$/, "");
         // "Quillfeather's" is the name; the 's stays in the text
         phrase = phrase.replace(/['’]s$/i, "");
@@ -150,6 +179,14 @@ const PDFSwapHush = (() => {
         if (/\.$/.test(phrase) && !isInitial(tail) && !SUFFIX.test(tail)) phrase = phrase.slice(0, -1);
         out.push({ phrase, first: bare(named[0]), last: named.length > 1 ? bare(named[named.length - 1]) : null });
       }
+    }
+    // "Quillfeather, Marisol J" as a spreadsheet, a CSV export or a folder name writes a client: a
+    // whole field or line, the surname, a comma, the first name and an initial
+    for (const m of text.matchAll(LAST_FIRST)) {
+      const [, lastW, firstW] = m;
+      if (P.institution(lastW + " " + firstW) || [lastW, firstW].some((w) => FORM_WORD.has(w.toLowerCase()) || FIELD.test(w) || OPENER.has(w.toLowerCase()) || STATE_CODES.split("|").includes(w))) continue;
+      if (!(first(firstW) || last(lastW) || known(lastW) || known(firstW) || m[3])) continue;
+      out.push({ phrase: m[0].trim().replace(/^["'\t;,]+|["'\t;,]+$/g, "").trim(), first: firstW, last: lastW });
     }
     return out;
   }
@@ -221,6 +258,8 @@ const PDFSwapHush = (() => {
       if (it.kind !== "name" || !it.checked || it.display.length < 2 || plan.some((p) => norm(p.value) === norm(it.display))) continue;
       take("name", it.display, [...(it.forms ? it.forms.keys() : [])], "name");
     }
+    // an account number after its label, with words between ("Account number (see instructions) 9923613648")
+    for (const m of text.matchAll(/\b(?:account|acct)\.?\b[^\d\n]{0,40}?(\d[\d-]{5,}\d)(?!\d)/gi)) take("acct", m[1], [], "acct");
     // a birth date in any common form, after the words that say it is one
     for (const m of text.matchAll(BORN)) take("dob", m[1], [], "dob");
     // a business by its legal ending ("Acme Plumbing Inc"), when the finder had no file to judge it by

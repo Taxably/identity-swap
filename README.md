@@ -227,6 +227,25 @@ first time it reads a PDF (models only, never a document). After that it runs of
 or pictures into a copy; the companion says so for a workbook that has them, and the page's own
 Excel swap keeps them.
 
+## How well it finds: the benchmark
+
+`node bench/run.js` scores the finding rules on 600 invented tax documents (client emails, W-2s,
+1099-NECs, preparers' notes, CSV exports, letters, scans' OCR text, and notes full of words that
+look like names and are not). Every value in them is labelled, so a miss or a wrong hide is counted,
+never guessed. Every push runs it, and CI fails if any score drops below `bench/baseline.json`.
+
+| Kind | Found |
+|---|---|
+| SSNs, EINs, account numbers, phones, emails, birth dates | 100% |
+| Streets, cities, ZIP codes, businesses | 100% |
+| People's names | 99.5% |
+| Words wrongly hidden (forms, IRS terms, banks, "Will", "Grace", "Bill") | 0 of 1,720 |
+
+The names it still misses are a first name no public list carries beside a surname no list carries,
+with no label near them ("for Priya Ostfeather"). The documents are invented, so these numbers say
+what the rules do on the cases written into the benchmark, not on every real file: read the swapped
+text before you send it. `node bench/run.js --misses` lists every miss.
+
 ## Check it yourself
 
 Both modes share a panel at the bottom of the page that counts every request the tab makes (it
@@ -262,6 +281,8 @@ Read the report's notes. Three of them mean the copy may still hold something of
 | `web/ui.js` | The page's three steps |
 | `web/hush.js` | Swaps text into tags, checks the result, restores an answer, and locks or opens a saved key |
 | `companion/swap_attachments.py`, `companion/rules.js` | The companion: attachments swapped on the firm's computer with LibreOffice, docling, python-docx, python-pptx and openpyxl, by the page's own rules |
+| `bench/corpus.js`, `bench/run.js`, `bench/baseline.json` | The benchmark: invented tax documents with every value labelled, the scorer, and the scores CI holds the rules to |
+| `.github/workflows/ci.yml` | CI: the benchmark, the tests, and a rebuild of the page that must match the committed one byte for byte |
 | `web/attach.js` | Swaps a PDF, Word, Excel, PowerPoint or text attachment with the message's tags, and reads it back to check |
 | `web/hushui.js` | The page's text swap mode and the "Check it yourself" panel |
 | `web/data.js` | PDF encoding tables and standard font widths |
@@ -363,5 +384,14 @@ Content-Security-Policy forbids evaluating text as script in any case.
 
 ## Licence
 
-Copyright © 2026 Taxably, Inc. All rights reserved. See `LICENSE`. The third-party components
-above are under their own licences.
+Identity Swap is open source under the GNU Affero General Public License, version 3 only
+(AGPL-3.0-only). Copyright © 2026 Taxably, Inc. See `LICENSE` for the licence and `NOTICE` for the
+copyright notice and the list of third-party components, which stay under their own licences.
+
+In plain words: anyone may use, study, change and share Identity Swap. Whoever shares a changed
+version, or runs one for other people over a network, must offer those people its source under the
+same licence. A firm that wants to build it into a closed product can ask Taxably for a commercial
+licence instead.
+
+Contributions are welcome: see `CONTRIBUTING.md`. To report a security problem privately, see
+`SECURITY.md`.
